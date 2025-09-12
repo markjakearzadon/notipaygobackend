@@ -46,6 +46,21 @@ func (s *UserService) GetUser(ctx context.Context, id string) (*models.User, err
 	return &user, err
 }
 
+func (s *UserService) UserList(ctx context.Context) ([]models.User, error) {
+	cur, err := s.collection.Find(ctx, bson.D{})
+	if err != nil {
+		return nil, err
+	}
+
+	var users []models.User
+	defer cur.Close(ctx)
+	if err := cur.All(ctx, &users); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
 // DeleteUser removes a user document from the database by its id (string)
 // parameter
 // (context, id)
