@@ -15,7 +15,7 @@ type UserService struct {
 }
 
 func NewUserService(db *mongo.Database) *UserService {
-	return &UserService{collection: db.Collection("users")}
+	return &UserService{collection: db.Collection("user")}
 }
 
 func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string, error) {
@@ -54,6 +54,7 @@ func (s *UserService) UserList(ctx context.Context) ([]models.User, error) {
 
 	var users []models.User
 	defer cur.Close(ctx)
+
 	if err := cur.All(ctx, &users); err != nil {
 		return nil, err
 	}
