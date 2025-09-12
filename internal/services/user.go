@@ -1,0 +1,64 @@
+package services
+
+import (
+	"context"
+	"time"
+
+	"github.com/markjakearzadon/notipay-gobackend.git/internal/models"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type UserService struct {
+	collection *mongo.Collection
+}
+
+func NewUserService(db *mongo.Database) *UserService {
+	return &UserService{collection: db.Collection("users")}
+}
+
+func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string, error) {
+	user.ID = primitive.NewObjectID()
+	user.CreatedAt = time.Now()
+
+	result, err := s.collection.InsertOne(ctx, user)
+	if err != nil {
+		return "", err
+	}
+
+	return result.InsertedID.(primitive.ObjectID).Hex(), nil
+}
+
+// GetUser by id of type string
+func (s *UserService) GetUser(ctx context.Context, id string) (*models.User, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+
+	var user models.User
+	err = s.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, err
+}
+
+// DeleteUser removes a user document from the database by its id (string)
+// parameter
+// (context, id)
+// returns:
+//   - string: the id of the deleted user if the operation was successful.
+//   - error
+func (s *UserService) DeleteUser(ctx context.Context, id string) (string, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = s.collection.DeleteOne(ctx, bson.M{"_id": objID})
+
+	return id, err
+}
