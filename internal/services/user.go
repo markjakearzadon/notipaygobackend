@@ -77,3 +77,8 @@ func (s *UserService) DeleteUser(ctx context.Context, id string) (string, error)
 
 	return id, err
 }
+
+// CreateUser
+// DeleteUser
+// UserList
+// GetUserById
