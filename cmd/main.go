@@ -40,8 +40,8 @@ func main() {
 
 	// Set up router
 	router := mux.NewRouter()
-	router.HandleFunc("/users", userHandler.CreateUser).Methods("POST")
-	router.HandleFunc("/users", userHandler.GetUsers).Methods("GET")
+	router.HandleFunc("/user", userHandler.CreateUser).Methods("POST")
+	router.HandleFunc("/user", userHandler.GetUsers).Methods("GET")
 
 	// Start server
 	log.Println("Server running on port 8080")
