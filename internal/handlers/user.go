@@ -31,7 +31,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.FullName == "" || user.Email == "" || user.HPassword == "" {
+	if user.FullName == "" || user.Email == "" || user.Number == "" || user.HPassword == "" {
 		http.Error(w, "missing required field", http.StatusBadRequest)
 		return
 	}
