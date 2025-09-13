@@ -6,6 +6,7 @@ import (
 
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/models"
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/services"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserHandler struct {
@@ -22,12 +23,26 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	var user models.User
 
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	if user.FullName == "" || user.Email == "" || user.Number == "" || user.HPassword == "" {
+		http.Error(w, "missing required field", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.HPassword), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user.HPassword = string(hashedPassword)
 
 	id, err := h.service.CreateUser(r.Context(), &user)
 	if err != nil {
