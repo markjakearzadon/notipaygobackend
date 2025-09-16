@@ -50,6 +50,6 @@ func main() {
 	router.HandleFunc("/api/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
 
 	// Start server
-	log.Println("Server running on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	log.Println("Server running on port 42069")
+	log.Fatal(http.ListenAndServe("0.0.0.0:42069", router))
 }

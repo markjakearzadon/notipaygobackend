@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -96,6 +97,7 @@ type ErrorResponse struct {
 }
 
 func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Received login request: %s %s", r.Method, r.URL.Path)
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -133,11 +135,6 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		"exp":      time.Now().Add(time.Hour * 24).Unix(),
 	})
 	tokenString, err := token.SignedString(jwtSecret)
-	if err != nil {
-		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
-		return
-	}
-
 	if err != nil {
 		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
 		return
