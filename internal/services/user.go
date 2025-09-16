@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/models"
@@ -18,10 +19,27 @@ type UserService struct {
 }
 
 func NewUserService(db *mongo.Database) *UserService {
-	return &UserService{collection: db.Collection("user")}
+	collection := db.Collection("user")
+	_, err := collection.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys:    bson.M{"email": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	return &UserService{collection: collection}
 }
 
 func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string, error) {
+	count, err := s.collection.CountDocuments(ctx, bson.M{"email": user.Email})
+	if err != nil {
+		return "", err
+	}
+
+	if count > 0 {
+		return "", errors.New("email already exists")
+	}
+
 	user.ID = primitive.NewObjectID()
 	user.CreatedAt = time.Now()
 
