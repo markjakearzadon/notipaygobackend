@@ -43,10 +43,11 @@ func main() {
 
 	// Set up router
 	router := mux.NewRouter()
-	router.HandleFunc("/user", userHandler.CreateUser).Methods("POST")
-	router.HandleFunc("/user", userHandler.GetUsers).Methods("GET")
-	router.HandleFunc("/announcement", announcementHandler.CreateAnnouncementHandler).Methods("POST")
-	router.HandleFunc("/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
+	router.HandleFunc("/api/user", userHandler.CreateUser).Methods("POST")
+	router.HandleFunc("/api/user", userHandler.GetUsers).Methods("GET")
+	router.HandleFunc("/api/login", userHandler.LoginUserHandler).Methods("POST")
+	router.HandleFunc("/api/announcement", announcementHandler.CreateAnnouncementHandler).Methods("POST")
+	router.HandleFunc("/api/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
 
 	// Start server
 	log.Println("Server running on port 8080")
