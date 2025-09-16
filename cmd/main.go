@@ -38,10 +38,15 @@ func main() {
 	userService := services.NewUserService(notidatabase)
 	userHandler := handlers.NewUserHandler(userService)
 
+	announcementService := services.NewAnnouncementService(notidatabase)
+	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
+
 	// Set up router
 	router := mux.NewRouter()
 	router.HandleFunc("/user", userHandler.CreateUser).Methods("POST")
 	router.HandleFunc("/user", userHandler.GetUsers).Methods("GET")
+	router.HandleFunc("/announcement", announcementHandler.CreateAnnouncementHandler).Methods("POST")
+	router.HandleFunc("/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
 
 	// Start server
 	log.Println("Server running on port 8080")

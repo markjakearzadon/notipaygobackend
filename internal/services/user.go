@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type UserService struct {
@@ -47,7 +48,10 @@ func (s *UserService) GetUser(ctx context.Context, id string) (*models.User, err
 }
 
 func (s *UserService) UserList(ctx context.Context) ([]models.User, error) {
-	cur, err := s.collection.Find(ctx, bson.D{})
+	option := bson.D{
+		{Key: "password", Value: 0},
+	}
+	cur, err := s.collection.Find(ctx, bson.D{}, options.Find().SetProjection(option))
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +83,7 @@ func (s *UserService) DeleteUser(ctx context.Context, id string) (string, error)
 	return id, err
 }
 
-// CreateUser
-// DeleteUser
-// UserList
-// GetUserById
+// createUser
+// deleteUser
+// userList
+// getUserById
