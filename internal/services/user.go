@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/models"
@@ -9,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserService struct {
@@ -83,7 +85,23 @@ func (s *UserService) DeleteUser(ctx context.Context, id string) (string, error)
 	return id, err
 }
 
+func (s *UserService) Login(ctx context.Context, email, password string) (*models.User, error) {
+	var user models.User
+	err := s.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.HPassword), []byte(password))
+	if err != nil {
+		return nil, errors.New("invalid password")
+	}
+
+	return &user, nil
+}
+
 // createUser
 // deleteUser
 // userList
 // getUserById
+// login
