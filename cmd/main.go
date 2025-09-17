@@ -49,6 +49,14 @@ func main() {
 	router.HandleFunc("/api/announcement", announcementHandler.CreateAnnouncementHandler).Methods("POST")
 	router.HandleFunc("/api/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
 
+	xenditService := services.NewXenditService(notidatabase)  // Add Xendit service
+	xenditHandler := handlers.NewXenditHandler(xenditService) // Add Xendit handler
+
+	// Xendit routes
+	router.HandleFunc("/api/payment", xenditHandler.CreatePayment).Methods("POST")
+	router.HandleFunc("/api/payment/{chargeId}", xenditHandler.CheckPaymentStatus).Methods("GET")
+	router.HandleFunc("/api/disburse", xenditHandler.CreateDisbursement).Methods("POST")
+	router.HandleFunc("/api/webhook", xenditHandler.Webhook).Methods("POST")
 	// Start server
 	log.Println("Server running on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", router))
