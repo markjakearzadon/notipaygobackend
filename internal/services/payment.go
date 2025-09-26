@@ -139,16 +139,9 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 		return nil, fmt.Errorf("invalid user_id format: %v", err)
 	}
 
-	// Convert paymentID to ObjectID
-	paymentObjID, err := primitive.ObjectIDFromHex(paymentID)
-	if err != nil {
-		log.Printf("Invalid paymentID format: %s, error: %v", paymentID, err)
-		return nil, fmt.Errorf("invalid payment_id format: %v", err)
-	}
-
 	// Find the payment
 	var payment models.Payment
-	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&payment); err != nil {
+	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
 			log.Printf("Payment not found for ID %s", paymentID)
 			return nil, fmt.Errorf("payment not found")
@@ -176,7 +169,7 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	}
 
 	// Update payment in database
-	_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
+	_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentID}, bson.M{"$set": updateFields})
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to update payment: %v", err)
@@ -184,7 +177,7 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 
 	// Fetch updated payment
 	var updatedPayment models.Payment
-	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&updatedPayment); err != nil {
+	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentID}).Decode(&updatedPayment); err != nil {
 		log.Printf("Failed to fetch updated payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to fetch updated payment: %v", err)
 	}
