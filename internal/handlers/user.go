@@ -22,7 +22,7 @@ func NewUserHandler(service *services.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-// CreateUser sdsdlj
+// CreateUser creates a new user with required fields including role
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -36,8 +36,14 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.FullName == "" || user.Email == "" || user.GCashNumber == "" || user.HPassword == "" {
+	if user.FullName == "" || user.Email == "" || user.GCashNumber == "" || user.HPassword == "" || user.Role == "" {
 		http.Error(w, "missing required field", http.StatusBadRequest)
+		return
+	}
+
+	// Validate role
+	if user.Role != "admin" && user.Role != "user" {
+		http.Error(w, "invalid role: must be 'admin' or 'user'", http.StatusBadRequest)
 		return
 	}
 
@@ -89,6 +95,7 @@ type LoginResponse struct {
 		Email       string    `json:"email"`
 		GCashNumber string    `json:"gcash_number"`
 		CreatedAt   time.Time `json:"created_at"`
+		Role        string    `json:"role"`
 	} `json:"user"`
 }
 
@@ -132,6 +139,7 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		"email":        user.Email,
 		"fullname":     user.FullName,
 		"gcash_number": user.GCashNumber,
+		"role":         user.Role,
 		"exp":          time.Now().Add(time.Hour * 24).Unix(),
 	})
 	tokenString, err := token.SignedString(jwtSecret)
@@ -150,6 +158,7 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 	resp.User.Email = user.Email
 	resp.User.GCashNumber = user.GCashNumber
 	resp.User.CreatedAt = user.CreatedAt
+	resp.User.Role = user.Role
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

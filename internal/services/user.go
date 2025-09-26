@@ -42,6 +42,10 @@ func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string
 
 	user.ID = primitive.NewObjectID()
 	user.CreatedAt = time.Now()
+	// Set default role to "user" if not provided
+	if user.Role == "" {
+		user.Role = "user"
+	}
 
 	result, err := s.collection.InsertOne(ctx, user)
 	if err != nil {
@@ -117,9 +121,3 @@ func (s *UserService) Login(ctx context.Context, email, password string) (*model
 
 	return &user, nil
 }
-
-// createUser
-// deleteUser
-// userList
-// getUserById
-// login
