@@ -36,7 +36,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.FullName == "" || user.Email == "" || user.Number == "" || user.HPassword == "" {
+	if user.FullName == "" || user.Email == "" || user.GCashNumber == "" || user.HPassword == "" {
 		http.Error(w, "missing required field", http.StatusBadRequest)
 		return
 	}
@@ -84,11 +84,11 @@ type LoginRequest struct {
 type LoginResponse struct {
 	Token string `json:"token"`
 	User  struct {
-		ID        string    `json:"id"`
-		FullName  string    `json:"fullname"`
-		Email     string    `json:"email"`
-		Number    string    `json:"number"`
-		CreatedAt time.Time `json:"created_at"`
+		ID          string    `json:"id"`
+		FullName    string    `json:"fullname"`
+		Email       string    `json:"email"`
+		GCashNumber string    `json:"gcash_number"`
+		CreatedAt   time.Time `json:"created_at"`
 	} `json:"user"`
 }
 
@@ -128,11 +128,11 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Generate JWT
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id":  user.ID.Hex(),
-		"email":    user.Email,
-		"fullname": user.FullName,
-		"number":   user.Number,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+		"user_id":      user.ID.Hex(),
+		"email":        user.Email,
+		"fullname":     user.FullName,
+		"gcash_number": user.GCashNumber,
+		"exp":          time.Now().Add(time.Hour * 24).Unix(),
 	})
 	tokenString, err := token.SignedString(jwtSecret)
 	if err != nil {
@@ -148,7 +148,7 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 	resp.User.ID = user.ID.Hex()
 	resp.User.FullName = user.FullName
 	resp.User.Email = user.Email
-	resp.User.Number = user.Number
+	resp.User.GCashNumber = user.GCashNumber
 	resp.User.CreatedAt = user.CreatedAt
 
 	w.Header().Set("Content-Type", "application/json")

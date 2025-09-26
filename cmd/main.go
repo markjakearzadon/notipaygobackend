@@ -9,37 +9,48 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	"github.com/markjakearzadon/notipay-gobackend.git/internal/db"
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/handlers"
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/services"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatalf("error loading .env %s", err)
+	// Load .env
+	if err := godotenv.Load(".env"); err != nil {
+		log.Fatalf("Error loading .env: %s", err)
 	}
 
+	// Connect to MongoDB
 	uri := os.Getenv("MONGOURI")
-	if err := db.Connect(uri); err != nil {
-		log.Fatalf("failed to connect %s", err)
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(uri))
+	if err != nil {
+		log.Fatalf("Failed to connect to MongoDB: %s", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	defer db.Disconnect(ctx)
+	defer func() {
+		if err := client.Disconnect(ctx); err != nil {
+			log.Printf("Error disconnecting from MongoDB: %s", err)
+		}
+	}()
 
-	err = db.Client.Ping(context.Background(), nil)
-	if err != nil {
-		log.Fatal(err)
+	if err := client.Ping(ctx, nil); err != nil {
+		log.Fatalf("Failed to ping MongoDB: %s", err)
 	}
 
-	notidatabase := db.Client.Database("notipaydb")
+	notidatabase := client.Database("notipaydb")
+
+	// Initialize services and handlers
 	userService := services.NewUserService(notidatabase)
 	userHandler := handlers.NewUserHandler(userService)
 
 	announcementService := services.NewAnnouncementService(notidatabase)
 	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
+
+	paymentService := services.NewPaymentService(notidatabase)
+	paymentHandler := handlers.NewPaymentHandler(paymentService)
 
 	// Set up router
 	router := mux.NewRouter()
@@ -48,16 +59,20 @@ func main() {
 	router.HandleFunc("/api/login", userHandler.LoginUserHandler).Methods("POST")
 	router.HandleFunc("/api/announcement", announcementHandler.CreateAnnouncementHandler).Methods("POST")
 	router.HandleFunc("/api/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
+	router.HandleFunc("/api/payment", paymentHandler.CreatePayment).Methods("POST")
+	router.HandleFunc("/api/payments", paymentHandler.GetPayments).Methods("GET")
+	router.HandleFunc("/api/payment/webhook", paymentHandler.Webhook).Methods("POST")
+	router.HandleFunc("/api/updatepayment/{paymentID}", paymentHandler.UpdatePayment).Methods("PATCH", "PUT")
+	router.HandleFunc("/api/userid/{userID}/payments", paymentHandler.GetPaymentsByUserID).Methods("GET")
+	router.HandleFunc("/api/payment/{paymentID}", paymentHandler.GetPaymentHandler).Methods("GET") // Added for payment validation
 
-	xenditService := services.NewXenditService(notidatabase)  // Add Xendit service
-	xenditHandler := handlers.NewXenditHandler(xenditService) // Add Xendit handler
-
-	// Xendit routes
-	router.HandleFunc("/api/payment", xenditHandler.CreatePayment).Methods("POST")
-	router.HandleFunc("/api/payment/{chargeId}", xenditHandler.CheckPaymentStatus).Methods("GET")
-	router.HandleFunc("/api/disburse", xenditHandler.CreateDisbursement).Methods("POST")
-	router.HandleFunc("/api/webhook", xenditHandler.Webhook).Methods("POST")
 	// Start server
-	log.Println("Server running on port 42069")
-	log.Fatal(http.ListenAndServe("0.0.0.0:42069", router))
+	log.Println("Server running on port 8080")
+	server := &http.Server{
+		Addr:         "0.0.0.0:8080",
+		Handler:      router,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }
