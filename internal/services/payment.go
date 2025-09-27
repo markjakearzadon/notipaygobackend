@@ -116,13 +116,81 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 	return payments, nil
 }
 
+// GetPaymentsByUserNumber retrieves payments for a specific user by their GCash number.
+func (s *PaymentService) GetPaymentsByUserNumber(ctx context.Context, userNumber string, statusFilter, startDate, endDate *string) ([]models.Payment, error) {
+	// Set query timeout
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Build query
+	query := bson.M{
+		"$or": []bson.M{
+			{"payer_number": userNumber},
+			{"payee_number": userNumber},
+		},
+		"status": bson.M{"$in": []string{"PENDING", "SUCCEEDED"}}, // Only include PENDING and SUCCEEDED
+	}
+
+	// Add status filter if provided
+	if statusFilter != nil && *statusFilter != "" {
+		if *statusFilter != "PENDING" && *statusFilter != "SUCCEEDED" {
+			log.Printf("Invalid status filter: %s, must be PENDING or SUCCEEDED", *statusFilter)
+			return nil, fmt.Errorf("invalid status filter, must be PENDING or SUCCEEDED")
+		}
+		query["status"] = *statusFilter
+	}
+
+	// Add date range filter if provided
+	if startDate != nil && *startDate != "" && endDate != nil && *endDate != "" {
+		start, err := time.Parse(time.RFC3339, *startDate)
+		if err != nil {
+			log.Printf("Invalid start_date format: %s, error: %v", *startDate, err)
+			return nil, fmt.Errorf("invalid start_date format: %v", err)
+		}
+		end, err := time.Parse(time.RFC3339, *endDate)
+		if err != nil {
+			log.Printf("Invalid end_date format: %s, error: %v", *endDate, err)
+			return nil, fmt.Errorf("invalid end_date format: %v", err)
+		}
+		query["created_at"] = bson.M{
+			"$gte": start,
+			"$lte": end,
+		}
+	}
+
+	// Execute query
+	cur, err := s.db.Collection("payments").Find(ctx, query, options.Find().SetSort(bson.M{"created_at": -1}))
+	if err != nil {
+		log.Printf("Failed to fetch payments for user %s: %v", userNumber, err)
+		return nil, fmt.Errorf("failed to fetch payments: %v", err)
+	}
+
+	var payments []models.Payment
+	defer cur.Close(ctx)
+	if err := cur.All(ctx, &payments); err != nil {
+		log.Printf("Failed to decode payments: %v", err)
+		return nil, fmt.Errorf("failed to decode payments: %v", err)
+	}
+
+	if len(payments) == 0 {
+		log.Printf("No payments found for user %s", userNumber)
+		return payments, nil
+	}
+
+	return payments, nil
+}
+
 func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID string) (*models.Payment, error) {
 	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// Validate paymentID format
-	paymentObjID := paymentID
+	paymentObjID, err := primitive.ObjectIDFromHex(paymentID)
+	if err != nil {
+		log.Printf("Invalid paymentID format: %s, error: %v", paymentID, err)
+		return nil, fmt.Errorf("invalid payment_id format: %v", err)
+	}
 
 	// Find the payment
 	var payment models.Payment
@@ -148,7 +216,7 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	}
 
 	// Update payment in database
-	_, err := s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
+	_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to update payment: %v", err)
@@ -165,22 +233,22 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	return &updatedPayment, nil
 }
 
-func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID string, amount float64, title, description string) (*models.Payment, error) {
+func (s *PaymentService) CreatePayment(ctx context.Context, payerNumber, payeeNumber string, amount float64, title, description string) (*models.Payment, error) {
 	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Log input
-	payerID = strings.TrimSpace(payerID)
-	payeeID = strings.TrimSpace(payeeID)
+	payerNumber = strings.TrimSpace(payerNumber)
+	payeeNumber = strings.TrimSpace(payeeNumber)
 	title = strings.TrimSpace(title)
 	description = strings.TrimSpace(description)
-	log.Printf("Creating payment: payerID=%s, payeeID=%s, amount=%f, title=%s, description=%s", payerID, payeeID, amount, title, description)
+	log.Printf("Creating payment: payerNumber=%s, payeeNumber=%s, amount=%f, title=%s, description=%s", payerNumber, payeeNumber, amount, title, description)
 
 	// Validate input
-	if payerID == "" || payeeID == "" {
-		log.Printf("Invalid input: payerID or payeeID is empty")
-		return nil, fmt.Errorf("payer_id and payee_id cannot be empty")
+	if payerNumber == "" || payeeNumber == "" {
+		log.Printf("Invalid input: payerNumber or payeeNumber is empty")
+		return nil, fmt.Errorf("payer_number and payee_number cannot be empty")
 	}
 	if amount <= 0 {
 		log.Printf("Invalid input: amount=%f is not positive", amount)
@@ -195,36 +263,24 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("description cannot be empty")
 	}
 
-	// Convert string IDs to ObjectID
-	payerObjID, err := primitive.ObjectIDFromHex(payerID)
-	if err != nil {
-		log.Printf("Invalid payerID format: %s, error: %v", payerID, err)
-		return nil, fmt.Errorf("invalid payer_id format: %v", err)
-	}
-	payeeObjID, err := primitive.ObjectIDFromHex(payeeID)
-	if err != nil {
-		log.Printf("Invalid payeeID format: %s, error: %v", payeeID, err)
-		return nil, fmt.Errorf("invalid payee_id format: %v", err)
-	}
-
-	// Validate payer and payee
+	// Validate payer and payee by GCash number
 	var payer, payee models.User
-	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": payerObjID}).Decode(&payer); err != nil {
+	if err := s.db.Collection("user").FindOne(ctx, bson.M{"gcash_number": payerNumber}).Decode(&payer); err != nil {
 		if err == mongo.ErrNoDocuments {
-			log.Printf("Payer not found for ID %s", payerID)
+			log.Printf("Payer not found for GCash number %s", payerNumber)
 			return nil, fmt.Errorf("payer not found")
 		}
-		log.Printf("Failed to fetch payer %s: %v", payerID, err)
+		log.Printf("Failed to fetch payer %s: %v", payerNumber, err)
 		return nil, fmt.Errorf("failed to fetch payer: %v", err)
 	}
 	log.Printf("Payer found: ID=%s, FullName=%s, GCashNumber=%s", payer.ID.Hex(), payer.FullName, payer.GCashNumber)
 
-	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": payeeObjID}).Decode(&payee); err != nil {
+	if err := s.db.Collection("user").FindOne(ctx, bson.M{"gcash_number": payeeNumber}).Decode(&payee); err != nil {
 		if err == mongo.ErrNoDocuments {
-			log.Printf("Payee not found for ID %s", payeeID)
+			log.Printf("Payee not found for GCash number %s", payeeNumber)
 			return nil, fmt.Errorf("payee not found")
 		}
-		log.Printf("Failed to fetch payee %s: %v", payeeID, err)
+		log.Printf("Failed to fetch payee %s: %v", payeeNumber, err)
 		return nil, fmt.Errorf("failed to fetch payee: %v", err)
 	}
 	log.Printf("Payee found: ID=%s, FullName=%s, GCashNumber=%s", payee.ID.Hex(), payee.FullName, payee.GCashNumber)
@@ -346,8 +402,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	payment := &models.Payment{
 		ID:          primitive.NewObjectID().Hex(),
 		ReferenceID: referenceID,
-		PayerID:     payerID,
-		PayeeID:     payeeID,
+		PayerNumber: payerNumber,
+		PayeeNumber: payeeNumber,
 		Amount:      amount,
 		Title:       title,
 		Description: description,
@@ -397,19 +453,14 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("can only disburse payment with status SUCCEEDED, current status is %s", payment.Status)
 	}
 
-	// Find payee
+	// Find payee by GCash number
 	var payee models.User
-	payeeObjID, err := primitive.ObjectIDFromHex(payment.PayeeID)
-	if err != nil {
-		log.Printf("Invalid payeeID format: %s, error: %v", payment.PayeeID, err)
-		return fmt.Errorf("invalid payee_id format: %v", err)
-	}
-	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": payeeObjID}).Decode(&payee); err != nil {
+	if err := s.db.Collection("user").FindOne(ctx, bson.M{"gcash_number": payment.PayeeNumber}).Decode(&payee); err != nil {
 		if err == mongo.ErrNoDocuments {
-			log.Printf("Payee not found for ID %s", payment.PayeeID)
+			log.Printf("Payee not found for GCash number %s", payment.PayeeNumber)
 			return fmt.Errorf("payee not found")
 		}
-		log.Printf("Failed to fetch payee %s: %v", payment.PayeeID, err)
+		log.Printf("Failed to fetch payee %s: %v", payment.PayeeNumber, err)
 		return fmt.Errorf("failed to fetch payee: %v", err)
 	}
 
