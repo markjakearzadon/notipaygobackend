@@ -247,8 +247,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerNumber, payeeNu
 
 	// Validate input
 	if payerNumber == "" {
-		log.Printf("Invalid input: payerNumber or payeeNumber is empty")
-		return nil, fmt.Errorf("payer_number and payee_number cannot be empty")
+		log.Printf("Invalid input: payerNumber is empty")
+		return nil, fmt.Errorf("payer_number cannot be empty")
 	}
 	payeeNumber = "09170000004"
 	if amount <= 0 {
