@@ -40,17 +40,6 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-		return
-	}
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
-		return
-	}
-
 	// Extract payment ID from URL
 	vars := mux.Vars(r)
 	paymentID := vars["paymentID"]
@@ -68,12 +57,6 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch payment: %v"}`, err), http.StatusInternalServerError)
-		return
-	}
-
-	// Verify user authorization
-	if payment.PayerID != userID && payment.PayeeID != userID {
-		http.Error(w, `{"error":"user not authorized to view this payment"}`, http.StatusForbidden)
 		return
 	}
 
@@ -104,26 +87,16 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-		return
-	}
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
-		return
-	}
-
 	// Extract payment ID from URL
-	paymentID := strings.TrimPrefix(r.URL.Path, "/api/updatepayment/")
+	vars := mux.Vars(r)
+	paymentID := vars["paymentID"]
 	if paymentID == "" {
 		http.Error(w, `{"error":"Payment ID is required"}`, http.StatusBadRequest)
 		return
 	}
 
 	// Call service to update payment status to SUCCEEDED
-	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, userID)
+	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, "")
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		if strings.Contains(err.Error(), "payment not found") {

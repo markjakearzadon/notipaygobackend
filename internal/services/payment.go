@@ -121,28 +121,18 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Validate userID format
-	_, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		log.Printf("Invalid userID format: %s, error: %v", userID, err)
-		return nil, fmt.Errorf("invalid user_id format: %v", err)
-	}
+	// Validate paymentID format
+	paymentObjID := paymentID
 
 	// Find the payment
 	var payment models.Payment
-	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentID}).Decode(&payment); err != nil {
+	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
 			log.Printf("Payment not found for ID %s", paymentID)
 			return nil, fmt.Errorf("payment not found")
 		}
 		log.Printf("Failed to fetch payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to fetch payment: %v", err)
-	}
-
-	// Verify user is either payer or payee
-	if payment.PayerID != userID && payment.PayeeID != userID {
-		log.Printf("User %s not authorized to update payment %s", userID, paymentID)
-		return nil, fmt.Errorf("user not authorized to update this payment")
 	}
 
 	// Only allow updates if payment status is PENDING
@@ -158,7 +148,7 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	}
 
 	// Update payment in database
-	_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentID}, bson.M{"$set": updateFields})
+	_, err := s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to update payment: %v", err)
@@ -166,12 +156,12 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 
 	// Fetch updated payment
 	var updatedPayment models.Payment
-	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentID}).Decode(&updatedPayment); err != nil {
+	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&updatedPayment); err != nil {
 		log.Printf("Failed to fetch updated payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to fetch updated payment: %v", err)
 	}
 
-	log.Printf("Payment status updated to SUCCEEDED: ID=%s, UserID=%s", paymentID, userID)
+	log.Printf("Payment status updated to SUCCEEDED: ID=%s", paymentID)
 	return &updatedPayment, nil
 }
 
