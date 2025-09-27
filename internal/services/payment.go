@@ -178,7 +178,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	log.Printf("Creating payment: payerID=%s, payeeID=%s, amount=%f, title=%s, description=%s", payerID, payeeID, amount, title, description)
 
 	// Validate input
-	if payerID == "" || payeeID == "" {
+	if payerID == "" {
 		log.Printf("Invalid input: payerID or payeeID is empty")
 		return nil, fmt.Errorf("payer_id and payee_id cannot be empty")
 	}
