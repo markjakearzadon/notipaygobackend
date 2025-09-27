@@ -56,25 +56,14 @@ func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (
 	return &payment, nil
 }
 
-// GetPayments retrieves payments for a user, with optional filtering by status and date range.
-func (s *PaymentService) GetPayments(ctx context.Context, userID string, statusFilter, startDate, endDate *string) ([]models.Payment, error) {
-	// Validate userID format
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		log.Printf("Invalid userID format: %s, error: %v", userID, err)
-		return nil, fmt.Errorf("invalid user_id format: %v", err)
-	}
-
+// GetPayments retrieves all payments with optional filtering by status and date range.
+func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDate, endDate *string) ([]models.Payment, error) {
 	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// Build query
 	query := bson.M{
-		"$or": []bson.M{
-			{"payer_id": objID.Hex()},
-			{"payee_id": objID.Hex()},
-		},
 		"status": bson.M{"$in": []string{"PENDING", "SUCCEEDED"}}, // Only include PENDING and SUCCEEDED
 	}
 
@@ -108,7 +97,7 @@ func (s *PaymentService) GetPayments(ctx context.Context, userID string, statusF
 	// Execute query
 	cur, err := s.db.Collection("payments").Find(ctx, query, options.Find().SetSort(bson.M{"created_at": -1}))
 	if err != nil {
-		log.Printf("Failed to fetch payments for user %s: %v", userID, err)
+		log.Printf("Failed to fetch payments: %v", err)
 		return nil, fmt.Errorf("failed to fetch payments: %v", err)
 	}
 
@@ -120,7 +109,7 @@ func (s *PaymentService) GetPayments(ctx context.Context, userID string, statusF
 	}
 
 	if len(payments) == 0 {
-		log.Printf("No payments found for user %s", userID)
+		log.Printf("No payments found")
 		return payments, nil
 	}
 

@@ -229,35 +229,6 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify JWT
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-		return
-	}
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
-		return
-	}
-
 	// Parse query parameters for filtering
 	statusFilter := r.URL.Query().Get("status")
 	startDate := r.URL.Query().Get("start_date")
@@ -280,10 +251,10 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		endDatePtr = &endDate
 	}
 
-	// Fetch payments for the user
-	payments, err := h.service.GetPayments(r.Context(), userID, statusPtr, startDatePtr, endDatePtr)
+	// Fetch all payments
+	payments, err := h.service.GetPayments(r.Context(), statusPtr, startDatePtr, endDatePtr)
 	if err != nil {
-		log.Printf("Failed to fetch payments for user %s: %v", userID, err)
+		log.Printf("Failed to fetch payments: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch payments: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
@@ -367,7 +338,7 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Fetch payments for the requested user
-	payments, err := h.service.GetPayments(r.Context(), requestedUserID, statusPtr, startDatePtr, endDatePtr)
+	payments, err := h.service.GetPayments(r.Context(), statusPtr, startDatePtr, endDatePtr)
 	if err != nil {
 		log.Printf("Failed to fetch payments for user %s: %v", requestedUserID, err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch payments: %v"}`, err), http.StatusInternalServerError)
