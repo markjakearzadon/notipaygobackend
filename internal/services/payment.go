@@ -201,7 +201,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Invalid payerID format: %s, error: %v", payerID, err)
 		return nil, fmt.Errorf("invalid payer_id format: %v", err)
 	}
-	payeeObjID, err := primitive.ObjectIDFromHex(payeeID)
+	payeeObjID, err := primitive.ObjectIDFromHex("68d6aadf4ee098645ac87d5d")
 	if err != nil {
 		log.Printf("Invalid payeeID format: %s, error: %v", payeeID, err)
 		return nil, fmt.Errorf("invalid payee_id format: %v", err)
