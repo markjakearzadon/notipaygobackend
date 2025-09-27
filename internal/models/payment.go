@@ -7,8 +7,8 @@ import (
 type Payment struct {
 	ID             string    `bson:"_id,omitempty" json:"id"`
 	ReferenceID    string    `bson:"reference_id" json:"reference_id"`
-	PayerNumber    string    `bson:"payer_number" json:"payer_number"` // Changed from payer_id
-	PayeeNumber    string    `bson:"payee_number" json:"payee_number"` // Changed from payee_id
+	PayerID        string    `bson:"payer_id" json:"payer_id"`
+	PayeeID        string    `bson:"payee_id" json:"payee_id"`
 	Amount         float64   `bson:"amount" json:"amount"`
 	Title          string    `bson:"title" json:"title"`             // Payment title
 	Description    string    `bson:"description" json:"description"` // Payment description

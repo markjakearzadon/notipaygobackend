@@ -135,8 +135,8 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		PayerNumber string  `json:"payer_number"` // Changed from payer_id
-		PayeeNumber string  `json:"payee_number"` // Changed from payee_id
+		PayerID     string  `json:"payer_id"`
+		PayeeID     string  `json:"payee_id"`
 		Amount      float64 `json:"amount"`
 		Title       string  `json:"title"`
 		Description string  `json:"description"`
@@ -159,7 +159,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payment, err := h.service.CreatePayment(r.Context(), req.PayerNumber, req.PayeeNumber, req.Amount, req.Title, req.Description)
+	payment, err := h.service.CreatePayment(r.Context(), req.PayerID, req.PayeeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create payment: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to create payment: %v"}`, err), http.StatusInternalServerError)
@@ -268,22 +268,22 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
 		return
 	}
-	authenticatedUserNumber, ok := claims["gcash_number"].(string)
+	authenticatedUserID, ok := claims["user_id"].(string)
 	if !ok {
-		http.Error(w, `{"error":"Invalid gcash_number in token"}`, http.StatusUnauthorized)
+		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
 		return
 	}
 
-	// Extract user number from URL
+	// Extract userID from URL
 	vars := mux.Vars(r)
-	requestedUserNumber := vars["userNumber"]
-	if requestedUserNumber == "" {
-		http.Error(w, `{"error":"User number is required"}`, http.StatusBadRequest)
+	requestedUserID := vars["userID"]
+	if requestedUserID == "" {
+		http.Error(w, `{"error":"User ID is required"}`, http.StatusBadRequest)
 		return
 	}
 
 	// Check if the authenticated user is requesting their own payments
-	if authenticatedUserNumber != requestedUserNumber {
+	if authenticatedUserID != requestedUserID {
 		http.Error(w, `{"error":"Unauthorized to view payments for this user"}`, http.StatusForbidden)
 		return
 	}
@@ -311,9 +311,9 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Fetch payments for the requested user
-	payments, err := h.service.GetPaymentsByUserNumber(r.Context(), requestedUserNumber, statusPtr, startDatePtr, endDatePtr)
+	payments, err := h.service.GetPayments(r.Context(), statusPtr, startDatePtr, endDatePtr)
 	if err != nil {
-		log.Printf("Failed to fetch payments for user %s: %v", requestedUserNumber, err)
+		log.Printf("Failed to fetch payments for user %s: %v", requestedUserID, err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch payments: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
