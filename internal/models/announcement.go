@@ -6,6 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// Announcement represents an announcement document in the MongoDB database
 type Announcement struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Title     string             `bson:"title" json:"title"`

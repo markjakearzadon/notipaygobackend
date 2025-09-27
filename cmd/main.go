@@ -50,11 +50,11 @@ func main() {
 	userService := services.NewUserService(notidatabase)
 	userHandler := handlers.NewUserHandler(userService)
 
-	announcementService := services.NewAnnouncementService(notidatabase)
-	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
-
 	paymentService := services.NewPaymentService(notidatabase)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
+
+	announcementService := services.NewAnnouncementService(notidatabase)
+	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
 
 	// Set up router
 	router := mux.NewRouter()
@@ -65,8 +65,13 @@ func main() {
 	router.HandleFunc("/api/user", userHandler.CreateUser).Methods("POST")
 	router.HandleFunc("/api/user", userHandler.GetUsers).Methods("GET")
 	router.HandleFunc("/api/login", userHandler.LoginUserHandler).Methods("POST")
-	router.HandleFunc("/api/announcement", announcementHandler.CreateAnnouncementHandler).Methods("POST")
-	router.HandleFunc("/api/announcement", announcementHandler.AnnouncementListHandler).Methods("GET")
+
+	router.HandleFunc("/api/announcement", announcementHandler.CreateAnnouncement).Methods("POST")
+	router.HandleFunc("/api/announcements", announcementHandler.GetAnnouncements).Methods("GET")
+	router.HandleFunc("/api/announcement/{announcementID}", announcementHandler.GetAnnouncement).Methods("GET")
+	router.HandleFunc("/api/announcement/{announcementID}", announcementHandler.UpdateAnnouncement).Methods("PATCH")
+	router.HandleFunc("/api/announcement/{announcementID}", announcementHandler.DeleteAnnouncement).Methods("DELETE")
+
 	router.HandleFunc("/api/payment", paymentHandler.CreatePayment).Methods("POST")
 	router.HandleFunc("/api/payments", paymentHandler.GetPayments).Methods("GET")
 	router.HandleFunc("/api/payment/webhook", paymentHandler.Webhook).Methods("POST")
