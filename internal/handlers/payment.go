@@ -22,7 +22,6 @@ func NewPaymentHandler(service *services.PaymentService) *PaymentHandler {
 }
 
 func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Request) {
-	// Verify JWT
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
@@ -40,7 +39,17 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Extract payment ID from URL
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
+		return
+	}
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
+		return
+	}
+
 	vars := mux.Vars(r)
 	paymentID := vars["paymentID"]
 	if paymentID == "" {
@@ -48,15 +57,19 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Fetch payment
 	payment, err := h.service.GetPaymentByID(r.Context(), paymentID)
 	if err != nil {
 		log.Printf("Failed to get payment %s: %v", paymentID, err)
 		if strings.Contains(err.Error(), "payment not found") {
-			http.Error(w, `{"error":"payment not found"}`, http.StatusBadRequest)
+			http.Error(w, `{"error":"payment not found"}`, http.StatusNotFound)
 			return
 		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch payment: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	if payment.PayerID != userID {
+		http.Error(w, `{"error":"Unauthorized to view this payment"}`, http.StatusForbidden)
 		return
 	}
 
@@ -69,7 +82,6 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
-	// Verify JWT
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
@@ -87,7 +99,17 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract payment ID from URL
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
+		return
+	}
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
+		return
+	}
+
 	vars := mux.Vars(r)
 	paymentID := vars["paymentID"]
 	if paymentID == "" {
@@ -95,12 +117,11 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call service to update payment status to SUCCEEDED
-	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, "")
+	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, userID)
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
-		if strings.Contains(err.Error(), "payment not found") {
-			http.Error(w, `{"error":"payment not found"}`, http.StatusBadRequest)
+		if strings.Contains(err.Error(), "payment not found") || strings.Contains(err.Error(), "user not authorized") {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to update payment: %v"}`, err), http.StatusInternalServerError)
@@ -116,7 +137,6 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
-	// Verify JWT
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
@@ -134,6 +154,17 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
+		return
+	}
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
+		return
+	}
+
 	var req struct {
 		PayerID     string  `json:"payer_id"`
 		PayeeID     string  `json:"payee_id"`
@@ -146,6 +177,10 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.PayerID != userID {
+		http.Error(w, `{"error":"Payer ID must match authenticated user"}`, http.StatusForbidden)
+		return
+	}
 	if req.Amount <= 0 {
 		http.Error(w, `{"error":"Amount must be positive"}`, http.StatusBadRequest)
 		return
@@ -158,10 +193,17 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Description is required"}`, http.StatusBadRequest)
 		return
 	}
+	req.PayeeID = "68d6aadf4ee098645ac87d5d"
 
 	payment, err := h.service.CreatePayment(r.Context(), req.PayerID, req.PayeeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create payment: %v", err)
+		if strings.Contains(err.Error(), "payer not found") || strings.Contains(err.Error(), "payee not found") ||
+			strings.Contains(err.Error(), "invalid payer_id") || strings.Contains(err.Error(), "invalid payee_id") ||
+			strings.Contains(err.Error(), "payer email required") || strings.Contains(err.Error(), "payee GCash number") {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to create payment: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
@@ -202,14 +244,42 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse query parameters for filtering
+	// Verify JWT for admin access (optional, depending on your requirements)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
+		return
+	}
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// claims, ok := token.Claims.(jwt.MapClaims)
+	// if !ok {
+	// 	http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
+	// 	return
+	// }
+	// Optionally check for admin role in claims
+	// role, ok := claims["role"].(string)
+	// if !ok || role != "admin" {
+	// 	http.Error(w, `{"error":"Admin access required"}`, http.StatusForbidden)
+	// 	return
+	// }
+
 	statusFilter := r.URL.Query().Get("status")
 	startDate := r.URL.Query().Get("start_date")
 	endDate := r.URL.Query().Get("end_date")
 
-	// Validate status filter
-	if statusFilter != "" && statusFilter != "PENDING" && statusFilter != "SUCCEEDED" {
-		http.Error(w, `{"error":"Invalid status filter, must be PENDING or SUCCEEDED"}`, http.StatusBadRequest)
+	if statusFilter != "" && !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[statusFilter] {
+		http.Error(w, `{"error":"Invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -224,7 +294,6 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		endDatePtr = &endDate
 	}
 
-	// Fetch all payments
 	payments, err := h.service.GetPayments(r.Context(), statusPtr, startDatePtr, endDatePtr)
 	if err != nil {
 		log.Printf("Failed to fetch payments: %v", err)
@@ -245,7 +314,6 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Verify JWT
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
@@ -274,7 +342,6 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Extract userID from URL
 	vars := mux.Vars(r)
 	requestedUserID := vars["userID"]
 	if requestedUserID == "" {
@@ -282,20 +349,17 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Check if the authenticated user is requesting their own payments
 	if authenticatedUserID != requestedUserID {
 		http.Error(w, `{"error":"Unauthorized to view payments for this user"}`, http.StatusForbidden)
 		return
 	}
 
-	// Parse query parameters for filtering
 	statusFilter := r.URL.Query().Get("status")
 	startDate := r.URL.Query().Get("start_date")
 	endDate := r.URL.Query().Get("end_date")
 
-	// Validate status filter
-	if statusFilter != "" && statusFilter != "PENDING" && statusFilter != "SUCCEEDED" {
-		http.Error(w, `{"error":"Invalid status filter, must be PENDING or SUCCEEDED"}`, http.StatusBadRequest)
+	if statusFilter != "" && !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[statusFilter] {
+		http.Error(w, `{"error":"Invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -310,10 +374,13 @@ func (h *PaymentHandler) GetPaymentsByUserID(w http.ResponseWriter, r *http.Requ
 		endDatePtr = &endDate
 	}
 
-	// Fetch payments for the requested user
-	payments, err := h.service.GetPayments(r.Context(), statusPtr, startDatePtr, endDatePtr)
+	payments, err := h.service.GetPaymentsByUserID(r.Context(), requestedUserID, statusPtr, startDatePtr, endDatePtr)
 	if err != nil {
 		log.Printf("Failed to fetch payments for user %s: %v", requestedUserID, err)
+		if strings.Contains(err.Error(), "invalid user_id") {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch payments: %v"}`, err), http.StatusInternalServerError)
 		return
 	}

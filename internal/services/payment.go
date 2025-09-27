@@ -29,20 +29,34 @@ func NewPaymentService(db *mongo.Database) *PaymentService {
 	return &PaymentService{db: db}
 }
 
-// GetPaymentByID retrieves a single payment by its ID.
+// EnsureIndexes creates necessary indexes for the payments collection
+func (s *PaymentService) EnsureIndexes(ctx context.Context) error {
+	indexModels := []mongo.IndexModel{
+		{Keys: bson.M{"_id": 1}},
+		{Keys: bson.M{"invoice_id": 1}},
+		{Keys: bson.M{"disbursement_id": 1}},
+		{Keys: bson.M{"payer_id": 1, "created_at": -1}},
+		{Keys: bson.M{"status": 1, "created_at": -1}},
+	}
+	_, err := s.db.Collection("payments").Indexes().CreateMany(ctx, indexModels)
+	if err != nil {
+		log.Printf("Failed to create indexes: %v", err)
+		return fmt.Errorf("failed to create indexes: %v", err)
+	}
+	return nil
+}
+
+// GetPaymentByID retrieves a single payment by its ID
 func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (*models.Payment, error) {
-	// Validate paymentID format
 	paymentObjID, err := primitive.ObjectIDFromHex(paymentID)
 	if err != nil {
 		log.Printf("Invalid paymentID format: %s, error: %v", paymentID, err)
 		return nil, fmt.Errorf("invalid payment_id format: %v", err)
 	}
 
-	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Find the payment
 	var payment models.Payment
 	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -56,27 +70,23 @@ func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (
 	return &payment, nil
 }
 
-// GetPayments retrieves all payments with optional filtering by status and date range.
+// GetPayments retrieves all payments with optional filtering by status and date range
 func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDate, endDate *string) ([]models.Payment, error) {
-	// Set query timeout
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Build query
 	query := bson.M{
-		"status": bson.M{"$in": []string{"PENDING", "SUCCEEDED"}}, // Only include PENDING and SUCCEEDED
+		"status": bson.M{"$in": []string{"PENDING", "PAID", "SETTLED", "EXPIRED"}},
 	}
 
-	// Add status filter if provided
 	if statusFilter != nil && *statusFilter != "" {
-		if *statusFilter != "PENDING" && *statusFilter != "SUCCEEDED" {
-			log.Printf("Invalid status filter: %s, must be PENDING or SUCCEEDED", *statusFilter)
-			return nil, fmt.Errorf("invalid status filter, must be PENDING or SUCCEEDED")
+		if !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[*statusFilter] {
+			log.Printf("Invalid status filter: %s, must be PENDING, PAID, SETTLED, or EXPIRED", *statusFilter)
+			return nil, fmt.Errorf("invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED")
 		}
 		query["status"] = *statusFilter
 	}
 
-	// Add date range filter if provided
 	if startDate != nil && *startDate != "" && endDate != nil && *endDate != "" {
 		start, err := time.Parse(time.RFC3339, *startDate)
 		if err != nil {
@@ -94,7 +104,6 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 		}
 	}
 
-	// Execute query
 	cur, err := s.db.Collection("payments").Find(ctx, query, options.Find().SetSort(bson.M{"created_at": -1}))
 	if err != nil {
 		log.Printf("Failed to fetch payments: %v", err)
@@ -116,15 +125,79 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 	return payments, nil
 }
 
+// GetPaymentsByUserID retrieves payments for a specific user with optional filtering
+func (s *PaymentService) GetPaymentsByUserID(ctx context.Context, userID string, statusFilter, startDate, endDate *string) ([]models.Payment, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// userObjID, err := primitive.ObjectIDFromHex(userID)
+	// if err != nil {
+	// 	log.Printf("Invalid userID format: %s, error: %v", userID, err)
+	// 	return nil, fmt.Errorf("invalid user_id format: %v", err)
+	// }
+
+	query := bson.M{
+		"payer_id": userID,
+		"status":   bson.M{"$in": []string{"PENDING", "PAID", "SETTLED", "EXPIRED"}},
+	}
+
+	if statusFilter != nil && *statusFilter != "" {
+		if !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[*statusFilter] {
+			log.Printf("Invalid status filter: %s, must be PENDING, PAID, SETTLED, or EXPIRED", *statusFilter)
+			return nil, fmt.Errorf("invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED")
+		}
+		query["status"] = *statusFilter
+	}
+
+	if startDate != nil && *startDate != "" && endDate != nil && *endDate != "" {
+		start, err := time.Parse(time.RFC3339, *startDate)
+		if err != nil {
+			log.Printf("Invalid start_date format: %s, error: %v", *startDate, err)
+			return nil, fmt.Errorf("invalid start_date format: %v", err)
+		}
+		end, err := time.Parse(time.RFC3339, *endDate)
+		if err != nil {
+			log.Printf("Invalid end_date format: %s, error: %v", *endDate, err)
+			return nil, fmt.Errorf("invalid end_date format: %v", err)
+		}
+		query["created_at"] = bson.M{
+			"$gte": start,
+			"$lte": end,
+		}
+	}
+
+	cur, err := s.db.Collection("payments").Find(ctx, query, options.Find().SetSort(bson.M{"created_at": -1}))
+	if err != nil {
+		log.Printf("Failed to fetch payments for user %s: %v", userID, err)
+		return nil, fmt.Errorf("failed to fetch payments: %v", err)
+	}
+
+	var payments []models.Payment
+	defer cur.Close(ctx)
+	if err := cur.All(ctx, &payments); err != nil {
+		log.Printf("Failed to decode payments: %v", err)
+		return nil, fmt.Errorf("failed to decode payments: %v", err)
+	}
+
+	if len(payments) == 0 {
+		log.Printf("No payments found for user %s", userID)
+		return payments, nil
+	}
+
+	return payments, nil
+}
+
+// UpdatePayment updates a payment's status to SUCCEEDED with user authorization check
 func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID string) (*models.Payment, error) {
-	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Validate paymentID format
-	paymentObjID := paymentID
+	paymentObjID, err := primitive.ObjectIDFromHex(paymentID)
+	if err != nil {
+		log.Printf("Invalid paymentID format: %s, error: %v", paymentID, err)
+		return nil, fmt.Errorf("invalid payment_id format: %v", err)
+	}
 
-	// Find the payment
 	var payment models.Payment
 	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -135,26 +208,27 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 		return nil, fmt.Errorf("failed to fetch payment: %v", err)
 	}
 
-	// Only allow updates if payment status is PENDING
+	if userID != "" && payment.PayerID != userID {
+		log.Printf("User %s not authorized to update payment %s", userID, paymentID)
+		return nil, fmt.Errorf("user not authorized to update payment")
+	}
+
 	if payment.Status != "PENDING" {
 		log.Printf("Cannot update payment %s with status %s", paymentID, payment.Status)
 		return nil, fmt.Errorf("can only update payment with status PENDING, current status is %s", payment.Status)
 	}
 
-	// Update payment status to SUCCEEDED
 	updateFields := bson.M{
 		"status":     "SUCCEEDED",
 		"updated_at": time.Now(),
 	}
 
-	// Update payment in database
-	_, err := s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
+	_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to update payment: %v", err)
 	}
 
-	// Fetch updated payment
 	var updatedPayment models.Payment
 	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&updatedPayment); err != nil {
 		log.Printf("Failed to fetch updated payment %s: %v", paymentID, err)
@@ -165,20 +239,19 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	return &updatedPayment, nil
 }
 
+// CreatePayment creates a new payment using Xendit's Invoice API
 func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID string, amount float64, title, description string) (*models.Payment, error) {
-	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Log input
+	// Validate inputs
 	payerID = strings.TrimSpace(payerID)
 	payeeID = strings.TrimSpace(payeeID)
 	title = strings.TrimSpace(title)
 	description = strings.TrimSpace(description)
 	log.Printf("Creating payment: payerID=%s, payeeID=%s, amount=%f, title=%s, description=%s", payerID, payeeID, amount, title, description)
 
-	// Validate input
-	if payerID == "" {
+	if payerID == "" || payeeID == "" {
 		log.Printf("Invalid input: payerID or payeeID is empty")
 		return nil, fmt.Errorf("payer_id and payee_id cannot be empty")
 	}
@@ -186,22 +259,26 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Invalid input: amount=%f is not positive", amount)
 		return nil, fmt.Errorf("amount must be positive")
 	}
-	if title == "" {
-		log.Printf("Invalid input: title is empty")
-		return nil, fmt.Errorf("title cannot be empty")
-	}
-	if description == "" {
-		log.Printf("Invalid input: description is empty")
-		return nil, fmt.Errorf("description cannot be empty")
+	if title == "" || description == "" {
+		log.Printf("Invalid input: title or description is empty")
+		return nil, fmt.Errorf("title and description cannot be empty")
 	}
 
-	// Convert string IDs to ObjectID
+	// Validate environment variables
+	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
+	ngrokURL := os.Getenv("NGROK_URL")
+	if xenditSecretKey == "" || ngrokURL == "" {
+		log.Printf("XENDIT_SECRET_KEY or NGROK_URL environment variable not set")
+		return nil, fmt.Errorf("XENDIT_SECRET_KEY or NGROK_URL not set")
+	}
+
+	// Convert IDs to ObjectID
 	payerObjID, err := primitive.ObjectIDFromHex(payerID)
 	if err != nil {
 		log.Printf("Invalid payerID format: %s, error: %v", payerID, err)
 		return nil, fmt.Errorf("invalid payer_id format: %v", err)
 	}
-	payeeObjID, err := primitive.ObjectIDFromHex("68d6aadf4ee098645ac87d5d")
+	payeeObjID, err := primitive.ObjectIDFromHex(payeeID)
 	if err != nil {
 		log.Printf("Invalid payeeID format: %s, error: %v", payeeID, err)
 		return nil, fmt.Errorf("invalid payee_id format: %v", err)
@@ -217,8 +294,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Failed to fetch payer %s: %v", payerID, err)
 		return nil, fmt.Errorf("failed to fetch payer: %v", err)
 	}
-	log.Printf("Payer found: ID=%s, FullName=%s, GCashNumber=%s", payer.ID.Hex(), payer.FullName, payer.GCashNumber)
-
+	log.Printf("Payer found: ID=%s, FullName=%s, Email=%s", payer.ID.Hex(), payer.FullName, payer.Email)
 	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": payeeObjID}).Decode(&payee); err != nil {
 		if err == mongo.ErrNoDocuments {
 			log.Printf("Payee not found for ID %s", payeeID)
@@ -229,130 +305,121 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	}
 	log.Printf("Payee found: ID=%s, FullName=%s, GCashNumber=%s", payee.ID.Hex(), payee.FullName, payee.GCashNumber)
 
-	if payer.GCashNumber == "" || payee.GCashNumber == "" {
-		log.Printf("GCash number missing: payer=%s, payee=%s", payer.GCashNumber, payee.GCashNumber)
-		return nil, fmt.Errorf("payer or payee GCash number missing")
+	// Validate payer email and payee GCash number
+	if payer.Email == "" {
+		log.Printf("Payer email missing for ID %s", payerID)
+		return nil, fmt.Errorf("payer email required for invoice creation")
+	}
+	if payee.GCashNumber == "" {
+		log.Printf("Payee GCash number missing for ID %s", payeeID)
+		return nil, fmt.Errorf("payee GCash number missing")
+	}
+	if !strings.HasPrefix(payee.GCashNumber, "0") || len(payee.GCashNumber) != 11 {
+		log.Printf("Invalid payee GCash number format: %s", payee.GCashNumber)
+		return nil, fmt.Errorf("payee GCash number must start with 0 and be 11 digits")
 	}
 
-	// Validate GCash number format (must start with 0 and have 11 digits)
-	if !strings.HasPrefix(payer.GCashNumber, "0") || len(payer.GCashNumber) != 11 {
-		log.Printf("Invalid payer GCash number format: %s", payer.GCashNumber)
-		return nil, fmt.Errorf("payer GCash number must start with 0 and be 11 digits")
-	}
-
-	// Format mobile number for Xendit (use +63 for eWallet charge)
-	mobileNumber := "+63" + payer.GCashNumber[1:]
-	log.Printf("Formatted mobile number for Xendit: %s", mobileNumber)
-
-	// Get ngrok URL from environment variable
-	ngrokURL := os.Getenv("NGROK_URL")
-	if ngrokURL == "" {
-		log.Printf("NGROK_URL environment variable not set")
-		return nil, fmt.Errorf("NGROK_URL environment variable not set")
-	}
-	log.Printf("Using NGROK_URL: %s", ngrokURL)
-
-	// Prepare Xendit charge request
-	referenceID := primitive.NewObjectID().Hex()
-	chargeReq := map[string]interface{}{
-		"reference_id":    referenceID,
-		"amount":          amount,
-		"currency":        "PHP",
-		"checkout_method": "ONE_TIME_PAYMENT",
-		"title":           title,
-		"description":     description,
-		"channel_properties": map[string]interface{}{
-			"mobile_number":        mobileNumber,
-			"success_redirect_url": ngrokURL + "/success",
-			"failure_redirect_url": ngrokURL + "/failure",
+	// Prepare Xendit invoice request
+	externalID := primitive.NewObjectID().Hex()
+	invoiceReq := map[string]interface{}{
+		"external_id":          externalID,
+		"amount":               amount,
+		"currency":             "PHP",
+		"description":          description,
+		"payer_email":          payer.Email,
+		"success_redirect_url": ngrokURL + "/success",
+		"failure_redirect_url": ngrokURL + "/failure",
+		"payment_methods":      []string{"GCASH"},
+		"invoice_duration":     "172800",
+		"reminder_time":        1,
+		"customer": map[string]interface{}{
+			"given_names":   payer.FullName,
+			"email":         payer.Email,
+			"mobile_number": "+63" + payer.GCashNumber[1:],
+		},
+		"items": []map[string]interface{}{
+			{
+				"name":     title,
+				"price":    amount,
+				"quantity": 1,
+			},
 		},
 	}
-	reqBody, err := json.Marshal(chargeReq)
+	reqBody, err := json.Marshal(invoiceReq)
 	if err != nil {
-		log.Printf("Failed to marshal charge request: %v", err)
-		return nil, fmt.Errorf("failed to marshal charge request: %v", err)
+		log.Printf("Failed to marshal invoice request: %v", err)
+		return nil, fmt.Errorf("failed to marshal invoice request: %v", err)
 	}
 
-	// Log the request body for debugging
-	log.Printf("Xendit charge request body: %s", string(reqBody))
+	// Log request body with masked sensitive fields
+	safeReqBody := maskSensitiveFields(reqBody)
+	log.Printf("Xendit invoice request body: %s", string(safeReqBody))
 
-	// Make HTTP request to Xendit with retry logic
+	// Make HTTP request to Xendit
 	client := &http.Client{Timeout: 10 * time.Second}
 	var resp *http.Response
 	for retries := 3; retries > 0; retries-- {
-		req, err := http.NewRequestWithContext(ctx, "POST", "https://api.xendit.co/ewallets/charges", bytes.NewBuffer(reqBody))
+		req, err := http.NewRequestWithContext(ctx, "POST", "https://api.xendit.co/v2/invoices", bytes.NewBuffer(reqBody))
 		if err != nil {
-			log.Printf("Failed to create charge request: %v", err)
-			return nil, fmt.Errorf("failed to create charge request: %v", err)
+			log.Printf("Failed to create invoice request: %v", err)
+			return nil, fmt.Errorf("failed to create invoice request: %v", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(os.Getenv("XENDIT_SECRET_KEY")+":")))
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(xenditSecretKey+":")))
 
 		resp, err = client.Do(req)
-		if err == nil && (resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted) {
+		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
 		if err != nil {
-			log.Printf("Charge request failed (attempt %d): %v", 4-retries, err)
+			log.Printf("Invoice request failed (attempt %d): %v", 4-retries, err)
 		} else {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			log.Printf("Charge failed with status %d (attempt %d): %s", resp.StatusCode, 4-retries, string(body))
+			log.Printf("Invoice request failed with status %d (attempt %d): %s", resp.StatusCode, 4-retries, string(body))
 		}
 		time.Sleep(time.Second * time.Duration(3-retries))
 	}
-	if err != nil || (resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted) {
+	if err != nil || resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Charge failed after retries: %v, status %d: %s", err, resp.StatusCode, string(body))
-		return nil, fmt.Errorf("charge failed after retries: %v, status %d: %s", err, resp.StatusCode, string(body))
+		log.Printf("Invoice creation failed after retries: %v, status %d: %s", err, resp.StatusCode, string(body))
+		return nil, fmt.Errorf("invoice creation failed: %v, status %d: %s", err, resp.StatusCode, string(body))
 	}
 	defer resp.Body.Close()
 
-	var chargeResp struct {
-		ID      string `json:"id"`
-		Status  string `json:"status"`
-		Actions struct {
-			MobileDeeplinkCheckoutURL string `json:"mobile_deeplink_checkout_url"`
-			MobileWebCheckoutURL      string `json:"mobile_web_checkout_url"`
-			DesktopWebCheckoutURL     string `json:"desktop_web_checkout_url"`
-		} `json:"actions"`
+	var invoiceResp struct {
+		ID         string `json:"id"`
+		Status     string `json:"status"`
+		InvoiceURL string `json:"invoice_url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&chargeResp); err != nil {
-		log.Printf("Failed to decode charge response: %v", err)
-		return nil, fmt.Errorf("failed to decode charge response: %v", err)
+	if err := json.NewDecoder(resp.Body).Decode(&invoiceResp); err != nil {
+		log.Printf("Failed to decode invoice response: %v", err)
+		return nil, fmt.Errorf("failed to decode invoice response: %v", err)
 	}
 
-	// Use mobile_deeplink_checkout_url if available, otherwise fall back to mobile_web_checkout_url
-	checkoutURL := chargeResp.Actions.MobileDeeplinkCheckoutURL
-	if checkoutURL == "" {
-		checkoutURL = chargeResp.Actions.MobileWebCheckoutURL
-		log.Printf("Mobile deeplink URL is null, using mobile web checkout URL: %s", checkoutURL)
-	}
-	if checkoutURL == "" {
-		log.Printf("No valid checkout URL found in response")
-		return nil, fmt.Errorf("no valid checkout URL provided in response")
+	if invoiceResp.InvoiceURL == "" {
+		log.Printf("No valid invoice URL provided in response")
+		return nil, fmt.Errorf("no valid invoice URL provided")
 	}
 
-	log.Printf("Charge response: ID=%s, Status=%s, CheckoutURL=%s", chargeResp.ID, chargeResp.Status, checkoutURL)
-
-	// Ensure status is either PENDING or SUCCEEDED
-	if chargeResp.Status != "PENDING" && chargeResp.Status != "SUCCEEDED" {
-		log.Printf("Invalid charge status from Xendit: %s, defaulting to PENDING", chargeResp.Status)
-		chargeResp.Status = "PENDING"
+	validStatuses := map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}
+	if !validStatuses[invoiceResp.Status] {
+		log.Printf("Invalid invoice status from Xendit: %s", invoiceResp.Status)
+		return nil, fmt.Errorf("invalid invoice status: %s", invoiceResp.Status)
 	}
 
 	// Save payment
 	payment := &models.Payment{
 		ID:          primitive.NewObjectID().Hex(),
-		ReferenceID: referenceID,
+		ReferenceID: externalID,
 		PayerID:     payerID,
 		PayeeID:     payeeID,
 		Amount:      amount,
 		Title:       title,
 		Description: description,
-		Status:      chargeResp.Status,
-		ChargeID:    chargeResp.ID,
-		CheckoutURL: checkoutURL,
+		Status:      invoiceResp.Status,
+		InvoiceID:   invoiceResp.ID,
+		CheckoutURL: invoiceResp.InvoiceURL,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -362,16 +429,15 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("failed to save payment: %v", err)
 	}
 
-	log.Printf("Payment created: ID=%s, ChargeID=%s, Title=%s, Description=%s", payment.ID, payment.ChargeID, payment.Title, payment.Description)
+	log.Printf("Payment created: ID=%s, InvoiceID=%s, CheckoutURL=%s", payment.ID, payment.InvoiceID, payment.CheckoutURL)
 	return payment, nil
 }
 
+// CreateDisbursement creates a disbursement for a succeeded payment
 func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID string) error {
-	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Validate paymentID
 	paymentID = strings.TrimSpace(paymentID)
 	paymentObjID, err := primitive.ObjectIDFromHex(paymentID)
 	if err != nil {
@@ -379,7 +445,6 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("invalid payment_id format: %v", err)
 	}
 
-	// Find the payment
 	var payment models.Payment
 	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -390,13 +455,11 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("failed to fetch payment: %v", err)
 	}
 
-	// Ensure payment is in SUCCEEDED state before disbursement
 	if payment.Status != "SUCCEEDED" {
 		log.Printf("Cannot disburse payment %s with status %s", paymentID, payment.Status)
 		return fmt.Errorf("can only disburse payment with status SUCCEEDED, current status is %s", payment.Status)
 	}
 
-	// Find payee
 	var payee models.User
 	payeeObjID, err := primitive.ObjectIDFromHex(payment.PayeeID)
 	if err != nil {
@@ -412,11 +475,18 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("failed to fetch payee: %v", err)
 	}
 
-	// Use local account number for Xendit disbursement
+	if payee.GCashNumber == "" {
+		log.Printf("Payee GCash number missing for ID %s", payment.PayeeID)
+		return fmt.Errorf("payee GCash number missing")
+	}
+	if !strings.HasPrefix(payee.GCashNumber, "0") || len(payee.GCashNumber) != 11 {
+		log.Printf("Invalid payee GCash number format: %s", payee.GCashNumber)
+		return fmt.Errorf("payee GCash number must start with 0 and be 11 digits")
+	}
+
 	accountNumber := payee.GCashNumber
 	log.Printf("Using account number for disbursement: %s", accountNumber)
 
-	// Prepare disbursement request
 	disReq := map[string]interface{}{
 		"reference_id":        payment.ReferenceID + "-disb",
 		"channel_code":        "PH_GCASH",
@@ -432,10 +502,9 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("failed to marshal disbursement request: %v", err)
 	}
 
-	// Log the request body for debugging
-	log.Printf("Xendit disbursement request body: %s", string(reqBody))
+	safeReqBody := maskSensitiveFields(reqBody)
+	log.Printf("Xendit disbursement request body: %s", string(safeReqBody))
 
-	// Make HTTP request to Xendit with retry logic
 	client := &http.Client{Timeout: 10 * time.Second}
 	var resp *http.Response
 	for retries := 3; retries > 0; retries-- {
@@ -448,7 +517,7 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(os.Getenv("XENDIT_SECRET_KEY")+":")))
 
 		resp, err = client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusCreated {
+		if err == nil && (resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted) {
 			break
 		}
 		if err != nil {
@@ -460,7 +529,7 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		}
 		time.Sleep(time.Second * time.Duration(3-retries))
 	}
-	if err != nil || resp.StatusCode != http.StatusCreated {
+	if err != nil || (resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted) {
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("Disbursement failed after retries: %v, status %d: %s", err, resp.StatusCode, string(body))
 		return fmt.Errorf("disbursement failed after retries: %v, status %d: %s", err, resp.StatusCode, string(body))
@@ -476,13 +545,11 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("failed to decode disbursement response: %v", err)
 	}
 
-	// Ensure status is either PENDING or SUCCEEDED
 	if disResp.Status != "PENDING" && disResp.Status != "SUCCEEDED" {
 		log.Printf("Invalid disbursement status from Xendit: %s, defaulting to SUCCEEDED", disResp.Status)
 		disResp.Status = "SUCCEEDED"
 	}
 
-	// Update payment
 	update := bson.M{
 		"$set": bson.M{
 			"disbursement_id": disResp.ID,
@@ -500,8 +567,8 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 	return nil
 }
 
+// HandleWebhook processes Xendit webhook events for invoices and disbursements
 func (s *PaymentService) HandleWebhook(ctx context.Context, payload map[string]interface{}) error {
-	// Set query timeout
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -513,48 +580,58 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, payload map[string]i
 
 	log.Printf("Received webhook: event=%s", eventType)
 
-	if eventType == "ewallet.charge.created" || eventType == "ewallet.charge.updated" || eventType == "ewallet.capture" {
+	if eventType == "invoice.created" || eventType == "invoice.paid" || eventType == "invoice.expired" {
 		data, ok := payload["data"].(map[string]interface{})
 		if !ok {
 			log.Printf("Invalid webhook data")
 			return fmt.Errorf("invalid webhook data")
 		}
-		chargeID, _ := data["id"].(string)
+		invoiceID, _ := data["id"].(string)
 		status, _ := data["status"].(string)
 
-		log.Printf("Processing webhook for charge %s with status %s", chargeID, status)
+		log.Printf("Processing webhook for invoice %s with status %s", invoiceID, status)
 
 		var payment models.Payment
-		err := s.db.Collection("payments").FindOne(ctx, bson.M{"charge_id": chargeID}).Decode(&payment)
+		err := s.db.Collection("payments").FindOne(ctx, bson.M{"invoice_id": invoiceID}).Decode(&payment)
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				log.Printf("Payment not found for charge %s", chargeID)
-				return fmt.Errorf("payment not found for charge %s", chargeID)
+				log.Printf("Payment not found for invoice %s", invoiceID)
+				return fmt.Errorf("payment not found for invoice %s", invoiceID)
 			}
-			log.Printf("Failed to fetch payment for charge %s: %v", chargeID, err)
-			return fmt.Errorf("failed to fetch payment for charge %s: %v", chargeID, err)
+			log.Printf("Failed to fetch payment for invoice %s: %v", invoiceID, err)
+			return fmt.Errorf("failed to fetch payment for invoice %s: %v", invoiceID, err)
 		}
-		log.Printf("Payment found for charge %s: ID=%s", chargeID, payment.ID)
+		log.Printf("Payment found for invoice %s: ID=%s", invoiceID, payment.ID)
 
-		if status == "SUCCEEDED" {
-			// Update payment status to SUCCEEDED
-			_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"charge_id": chargeID}, bson.M{
+		if status == "PAID" || status == "SETTLED" {
+			_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"invoice_id": invoiceID}, bson.M{
 				"$set": bson.M{
 					"status":     "SUCCEEDED",
 					"updated_at": time.Now(),
 				},
 			})
 			if err != nil {
-				log.Printf("Failed to update payment status to SUCCEEDED for charge %s: %v", chargeID, err)
+				log.Printf("Failed to update payment status to SUCCEEDED for invoice %s: %v", invoiceID, err)
 				return fmt.Errorf("failed to update payment status: %v", err)
 			}
-			log.Printf("Updated payment status to SUCCEEDED for charge %s", chargeID)
+			log.Printf("Updated payment status to SUCCEEDED for invoice %s", invoiceID)
 
-			// Initiate disbursement
 			return s.CreateDisbursement(ctx, payment.ID)
+		} else if status == "EXPIRED" {
+			_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"invoice_id": invoiceID}, bson.M{
+				"$set": bson.M{
+					"status":     "EXPIRED",
+					"updated_at": time.Now(),
+				},
+			})
+			if err != nil {
+				log.Printf("Failed to update payment status to EXPIRED for invoice %s: %v", invoiceID, err)
+				return fmt.Errorf("failed to update payment status: %v", err)
+			}
+			log.Printf("Updated payment status to EXPIRED for invoice %s", invoiceID)
+			return nil
 		} else {
-			// Log unexpected status but do not update to FAILED
-			log.Printf("Received unexpected status %s for charge %s, no action taken", status, chargeID)
+			log.Printf("Received status %s for invoice %s, no action taken", status, invoiceID)
 			return nil
 		}
 	} else if eventType == "ph_disbursement.completed" {
@@ -566,7 +643,6 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, payload map[string]i
 		disID, _ := data["id"].(string)
 		status, _ := data["status"].(string)
 
-		// Ensure status is either PENDING or SUCCEEDED
 		if status != "PENDING" && status != "SUCCEEDED" {
 			log.Printf("Invalid disbursement status from Xendit: %s, defaulting to SUCCEEDED", status)
 			status = "SUCCEEDED"
@@ -589,4 +665,38 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, payload map[string]i
 	}
 	log.Printf("Unhandled webhook event type: %s", eventType)
 	return nil
+}
+
+// maskSensitiveFields masks sensitive data in logs
+func maskSensitiveFields(body []byte) []byte {
+	var req map[string]interface{}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return body
+	}
+	if email, ok := req["payer_email"].(string); ok {
+		parts := strings.Split(email, "@")
+		if len(parts) > 0 && len(parts[0]) > 3 {
+			req["payer_email"] = parts[0][:3] + "****@" + parts[1]
+		}
+	}
+	if customer, ok := req["customer"].(map[string]interface{}); ok {
+		if mobile, ok := customer["mobile_number"].(string); ok {
+			if len(mobile) > 4 {
+				customer["mobile_number"] = "****" + mobile[len(mobile)-4:]
+			}
+		}
+		if email, ok := customer["email"].(string); ok {
+			parts := strings.Split(email, "@")
+			if len(parts) > 0 && len(parts[0]) > 3 {
+				customer["email"] = parts[0][:3] + "****@" + parts[1]
+			}
+		}
+	}
+	if accountNumber, ok := req["account_number"].(string); ok {
+		if len(accountNumber) > 4 {
+			req["account_number"] = "****" + accountNumber[len(accountNumber)-4:]
+		}
+	}
+	masked, _ := json.Marshal(req)
+	return masked
 }
