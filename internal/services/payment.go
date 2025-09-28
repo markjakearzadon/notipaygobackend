@@ -267,8 +267,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		"description":     description,
 		"channel_properties": map[string]interface{}{
 			"mobile_number":        mobileNumber,
-			"success_redirect_url": ngrokURL + "/updatepayment/" + thisisthepaymentid,
-			"failure_redirect_url": ngrokURL + "/updatepayment/",
+			"success_redirect_url": ngrokURL + "/api/updatepayment/" + thisisthepaymentid,
+			"failure_redirect_url": ngrokURL + "/api/updatepayment/",
 		},
 	}
 	reqBody, err := json.Marshal(chargeReq)
