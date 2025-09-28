@@ -75,7 +75,7 @@ func main() {
 	router.HandleFunc("/api/payment", paymentHandler.CreatePayment).Methods("POST")
 	router.HandleFunc("/api/payments", paymentHandler.GetPayments).Methods("GET")
 	router.HandleFunc("/api/payment/webhook", paymentHandler.Webhook).Methods("POST")
-	router.HandleFunc("/api/updatepayment/{paymentID}", paymentHandler.UpdatePayment).Methods("PATCH", "PUT")
+	router.HandleFunc("/api/updatepayment/{paymentID}", paymentHandler.UpdatePayment).Methods("PATCH", "PUT", "GET")
 	router.HandleFunc("/api/userid/{userID}/payments", paymentHandler.GetPaymentsByUserID).Methods("GET")
 	router.HandleFunc("/api/payment/{paymentID}", paymentHandler.GetPaymentHandler).Methods("GET")
 
