@@ -262,6 +262,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	referenceID := primitive.NewObjectID().Hex()
 	chargeReq := map[string]interface{}{
 		"reference_id":    referenceID,
+		"channel_code":    "PH_GCASH",
 		"amount":          amount,
 		"currency":        "PHP",
 		"checkout_method": "ONE_TIME_PAYMENT",
