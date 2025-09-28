@@ -102,13 +102,6 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//w.Header().Set("Content-Type", "application/json")
-	//w.WriteHeader(http.StatusOK)
-	//if err := json.NewEncoder(w).Encode(updatedPayment); err != nil {
-	//	log.Printf("Failed to encode updated payment: %v", err)
-	//	http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
-	//}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -149,7 +142,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		PayerID     string  `json:"payer_id"`
+		PayerNumber string  `json:"payer_number"`
 		PayeeID     string  `json:"payee_id"`
 		Amount      float64 `json:"amount"`
 		Title       string  `json:"title"`
@@ -160,10 +153,33 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.PayerID != userID {
-		http.Error(w, `{"error":"Payer ID must match authenticated user"}`, http.StatusForbidden)
+	// Validate phone number
+	if req.PayerNumber == "" {
+		http.Error(w, `{"error":"Payer phone number is required"}`, http.StatusBadRequest)
 		return
 	}
+	if !strings.HasPrefix(req.PayerNumber, "0") || len(req.PayerNumber) != 11 {
+		http.Error(w, `{"error":"Payer phone number must start with 0 and be 11 digits"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Fetch user by phone number
+	payer, err := h.service.GetUserByPhoneNumber(r.Context(), req.PayerNumber)
+	if err != nil {
+		log.Printf("Failed to fetch user by phone number %s: %v", req.PayerNumber, err)
+		if strings.Contains(err.Error(), "user not found") {
+			http.Error(w, `{"error":"User not found for provided phone number"}`, http.StatusBadRequest)
+			return
+		}
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch user: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	if payer.ID.Hex() != userID {
+		http.Error(w, `{"error":"Payer phone number must match authenticated user"}`, http.StatusForbidden)
+		return
+	}
+
 	if req.Amount <= 0 {
 		http.Error(w, `{"error":"Amount must be positive"}`, http.StatusBadRequest)
 		return
@@ -178,7 +194,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 	req.PayeeID = "68d6aadf4ee098645ac87d5d"
 
-	payment, err := h.service.CreatePayment(r.Context(), req.PayerID, req.PayeeID, req.Amount, req.Title, req.Description)
+	payment, err := h.service.CreatePayment(r.Context(), payer.ID.Hex(), req.PayeeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create payment: %v", err)
 		if strings.Contains(err.Error(), "payer not found") || strings.Contains(err.Error(), "payee not found") ||
@@ -226,36 +242,6 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
-
-	// Verify JWT for admin access (optional, depending on your requirements)
-	//authHeader := r.Header.Get("Authorization")
-	//if authHeader == "" {
-	//	http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-	//	return
-	//}
-	//tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	//token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-	//	if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-	//		return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-	//	}
-	//	return jwtSecret, nil
-	//})
-	//if err != nil || !token.Valid {
-	//	http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
-	//	return
-	//}
-
-	// claims, ok := token.Claims.(jwt.MapClaims)
-	// if !ok {
-	// 	http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-	// 	return
-	// }
-	// Optionally check for admin role in claims
-	// role, ok := claims["role"].(string)
-	// if !ok || role != "admin" {
-	// 	http.Error(w, `{"error":"Admin access required"}`, http.StatusForbidden)
-	// 	return
-	// }
 
 	statusFilter := r.URL.Query().Get("status")
 	startDate := r.URL.Query().Get("start_date")

@@ -29,6 +29,24 @@ func NewPaymentService(db *mongo.Database) *PaymentService {
 	return &PaymentService{db: db}
 }
 
+// GetUserByPhoneNumber retrieves a user by their phone number
+func (s *PaymentService) GetUserByPhoneNumber(ctx context.Context, phoneNumber string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var user models.User
+	if err := s.db.Collection("user").FindOne(ctx, bson.M{"gcash_number": phoneNumber}).Decode(&user); err != nil {
+		if err == mongo.ErrNoDocuments {
+			log.Printf("User not found for phone number %s", phoneNumber)
+			return nil, fmt.Errorf("user not found")
+		}
+		log.Printf("Failed to fetch user for phone number %s: %v", phoneNumber, err)
+		return nil, fmt.Errorf("failed to fetch user: %v", err)
+	}
+
+	return &user, nil
+}
+
 // EnsureIndexes creates necessary indexes for the payments collection
 func (s *PaymentService) EnsureIndexes(ctx context.Context) error {
 	indexModels := []mongo.IndexModel{
@@ -185,7 +203,6 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	defer cancel()
 
 	var payment models.Payment
-	// Query by reference_id instead of _id
 	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"reference_id": paymentID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
 			log.Printf("Payment not found for reference_id %s", paymentID)
@@ -221,12 +238,10 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	return &updatedPayment, nil
 }
 
-// CreatePayment creates a new payment using Xendit's Invoice API
 func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID string, amount float64, title, description string) (*models.Payment, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Validate inputs
 	payerID = strings.TrimSpace(payerID)
 	payeeID = strings.TrimSpace(payeeID)
 	title = strings.TrimSpace(title)
@@ -247,16 +262,13 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	}
 	payeeID = "68d6aadf4ee098645ac87d5d"
 
-	// Validate environment variables
 	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
 	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")
-	// ngrokURL := "http://localhost:8080"
 	if xenditSecretKey == "" || ngrokURL == "" {
 		log.Printf("XENDIT_SECRET_KEY or NGROK_URL environment variable not set")
 		return nil, fmt.Errorf("XENDIT_SECRET_KEY or NGROK_URL not set")
 	}
 
-	// Convert IDs to ObjectID
 	payerObjID, err := primitive.ObjectIDFromHex(payerID)
 	if err != nil {
 		log.Printf("Invalid payerID format: %s, error: %v", payerID, err)
@@ -268,7 +280,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("invalid payee_id format: %v", err)
 	}
 
-	// Validate payer and payee
 	var payer, payee models.User
 	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": payerObjID}).Decode(&payer); err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -289,7 +300,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	}
 	log.Printf("Payee found: ID=%s, FullName=%s, GCashNumber=%s", payee.ID.Hex(), payee.FullName, payee.GCashNumber)
 
-	// Validate payer email and payee GCash number
 	if payer.Email == "" {
 		log.Printf("Payer email missing for ID %s", payerID)
 		return nil, fmt.Errorf("payer email required for invoice creation")
@@ -303,7 +313,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("payee GCash number must start with 0 and be 11 digits")
 	}
 
-	// Prepare Xendit invoice request
 	externalID := primitive.NewObjectID().Hex()
 	invoiceReq := map[string]interface{}{
 		"external_id":          externalID,
@@ -335,11 +344,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("failed to marshal invoice request: %v", err)
 	}
 
-	// Log request body with masked sensitive fields
 	safeReqBody := maskSensitiveFields(reqBody)
 	log.Printf("Xendit invoice request body: %s", string(safeReqBody))
 
-	// Make HTTP request to Xendit
 	client := &http.Client{Timeout: 10 * time.Second}
 	var resp *http.Response
 	for retries := 3; retries > 0; retries-- {
@@ -392,9 +399,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("invalid invoice status: %s", invoiceResp.Status)
 	}
 
-	// Save payment
 	payment := &models.Payment{
-		// ID:          primitive.NewObjectID().Hex(),
 		ID:          externalID,
 		ReferenceID: externalID,
 		PayerID:     payerID,
@@ -418,7 +423,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	return payment, nil
 }
 
-// CreateDisbursement creates a disbursement for a succeeded payment
 func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -552,7 +556,6 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 	return nil
 }
 
-// HandleWebhook processes Xendit webhook events for invoices and disbursements
 func (s *PaymentService) HandleWebhook(ctx context.Context, payload map[string]interface{}) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -652,7 +655,6 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, payload map[string]i
 	return nil
 }
 
-// maskSensitiveFields masks sensitive data in logs
 func maskSensitiveFields(body []byte) []byte {
 	var req map[string]interface{}
 	if err := json.Unmarshal(body, &req); err != nil {
