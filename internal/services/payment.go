@@ -80,7 +80,7 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 	}
 
 	if statusFilter != nil && *statusFilter != "" {
-		if !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[*statusFilter] {
+		if !map[string]bool{"PENDING": true, "SUCCEEDED": true, "EXPIRED": true}[*statusFilter] {
 			log.Printf("Invalid status filter: %s, must be PENDING, PAID, SETTLED, or EXPIRED", *statusFilter)
 			return nil, fmt.Errorf("invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED")
 		}
