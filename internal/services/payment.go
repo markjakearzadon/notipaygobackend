@@ -208,11 +208,6 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 		return nil, fmt.Errorf("failed to fetch payment: %v", err)
 	}
 
-	if userID != "" && payment.PayerID != userID {
-		log.Printf("User %s not authorized to update payment %s", userID, paymentID)
-		return nil, fmt.Errorf("user not authorized to update payment")
-	}
-
 	if payment.Status != "PENDING" {
 		log.Printf("Cannot update payment %s with status %s", paymentID, payment.Status)
 		return nil, fmt.Errorf("can only update payment with status PENDING, current status is %s", payment.Status)
@@ -266,7 +261,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 
 	// Validate environment variables
 	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
-	ngrokURL := os.Getenv("NGROK_URL")
+	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")
 	if xenditSecretKey == "" || ngrokURL == "" {
 		log.Printf("XENDIT_SECRET_KEY or NGROK_URL environment variable not set")
 		return nil, fmt.Errorf("XENDIT_SECRET_KEY or NGROK_URL not set")
@@ -327,8 +322,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		"currency":             "PHP",
 		"description":          description,
 		"payer_email":          payer.Email,
-		"success_redirect_url": ngrokURL + "/success",
-		"failure_redirect_url": ngrokURL + "/failure",
+		"success_redirect_url": ngrokURL + "/api/updatepayment/" + externalID,
+		"failure_redirect_url": ngrokURL + "/api/updatepayment/",
 		"payment_methods":      []string{"GCASH"},
 		"invoice_duration":     "172800",
 		"reminder_time":        1,
@@ -410,7 +405,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 
 	// Save payment
 	payment := &models.Payment{
-		ID:          primitive.NewObjectID().Hex(),
+		// ID:          primitive.NewObjectID().Hex(),
+		ID:          externalID,
 		ReferenceID: externalID,
 		PayerID:     payerID,
 		PayeeID:     payeeID,
