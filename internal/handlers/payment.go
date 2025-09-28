@@ -95,7 +95,7 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		if strings.Contains(err.Error(), "payment not found") || strings.Contains(err.Error(), "user not authorized") {
-			http.Error(w, fmt.Sprintf(`{"error":"something went wrong. please try again after few minutes...%d"}`, 1), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf(`{"error":"Something went wrong, but your payment was successful! inshallah%d"}`, 1), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, fmt.Sprintf(`{"error":"something went wrong. please try again after few minutes...%d"}`, 1), http.StatusBadRequest)
