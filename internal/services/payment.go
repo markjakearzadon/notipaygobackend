@@ -256,6 +256,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	//
 	thisisthepaymentid := primitive.NewObjectID()
 
+	copyid := thisisthepaymentid.Hex()
+
 	// Prepare Xendit charge request
 	referenceID := primitive.NewObjectID().Hex()
 	chargeReq := map[string]interface{}{
@@ -267,7 +269,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		"description":     description,
 		"channel_properties": map[string]interface{}{
 			"mobile_number":        mobileNumber,
-			"success_redirect_url": ngrokURL + "/api/updatepayment/" + thisisthepaymentid.Hex(),
+			"success_redirect_url": ngrokURL + "/api/updatepayment/" + copyid,
 			"failure_redirect_url": ngrokURL + "/api/updatepayment/",
 		},
 	}
@@ -347,7 +349,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 
 	// Save payment
 	payment := &models.Payment{
-		ID:          thisisthepaymentid,
+		ID:          copyid,
 		ReferenceID: referenceID,
 		PayerID:     payerID,
 		PayeeID:     payeeID,
