@@ -261,7 +261,7 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 	startDate := r.URL.Query().Get("start_date")
 	endDate := r.URL.Query().Get("end_date")
 
-	if statusFilter != "" && !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[statusFilter] {
+	if statusFilter != "" && !map[string]bool{"PENDING": true, "SUCCEEDED": true, "EXPIRED": true}[statusFilter] {
 		http.Error(w, `{"error":"Invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED"}`, http.StatusBadRequest)
 		return
 	}
