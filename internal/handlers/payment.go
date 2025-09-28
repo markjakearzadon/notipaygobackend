@@ -228,22 +228,22 @@ func (h *PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify JWT for admin access (optional, depending on your requirements)
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
-		return
-	}
+	//authHeader := r.Header.Get("Authorization")
+	//if authHeader == "" {
+	//	http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
+	//	return
+	//}
+	//tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	//token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	//	if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+	//		return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+	//	}
+	//	return jwtSecret, nil
+	//})
+	//if err != nil || !token.Valid {
+	//	http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
+	//	return
+	//}
 
 	// claims, ok := token.Claims.(jwt.MapClaims)
 	// if !ok {
