@@ -187,21 +187,15 @@ func (s *PaymentService) GetPaymentsByUserID(ctx context.Context, userID string,
 	return payments, nil
 }
 
-// UpdatePayment updates a payment's status to SUCCEEDED with user authorization check
 func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID string) (*models.Payment, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	paymentObjID, err := primitive.ObjectIDFromHex(paymentID)
-	if err != nil {
-		log.Printf("Invalid paymentID format: %s, error: %v", paymentID, err)
-		return nil, fmt.Errorf("invalid payment_id format: %v", err)
-	}
-
 	var payment models.Payment
-	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&payment); err != nil {
+	// Query by reference_id instead of _id
+	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"reference_id": paymentID}).Decode(&payment); err != nil {
 		if err == mongo.ErrNoDocuments {
-			log.Printf("Payment not found for ID %s", paymentID)
+			log.Printf("Payment not found for reference_id %s", paymentID)
 			return nil, fmt.Errorf("payment not found")
 		}
 		log.Printf("Failed to fetch payment %s: %v", paymentID, err)
@@ -218,19 +212,19 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 		"updated_at": time.Now(),
 	}
 
-	_, err = s.db.Collection("payments").UpdateOne(ctx, bson.M{"_id": paymentObjID}, bson.M{"$set": updateFields})
+	_, err := s.db.Collection("payments").UpdateOne(ctx, bson.M{"reference_id": paymentID}, bson.M{"$set": updateFields})
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to update payment: %v", err)
 	}
 
 	var updatedPayment models.Payment
-	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"_id": paymentObjID}).Decode(&updatedPayment); err != nil {
+	if err := s.db.Collection("payments").FindOne(ctx, bson.M{"reference_id": paymentID}).Decode(&updatedPayment); err != nil {
 		log.Printf("Failed to fetch updated payment %s: %v", paymentID, err)
 		return nil, fmt.Errorf("failed to fetch updated payment: %v", err)
 	}
 
-	log.Printf("Payment status updated to SUCCEEDED: ID=%s", paymentID)
+	log.Printf("Payment status updated to SUCCEEDED: reference_id=%s", paymentID)
 	return &updatedPayment, nil
 }
 
