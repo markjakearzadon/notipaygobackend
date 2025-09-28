@@ -76,7 +76,7 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 	defer cancel()
 
 	query := bson.M{
-		"status": bson.M{"$in": []string{"PENDING", "PAID", "SETTLED", "EXPIRED"}},
+		"status": bson.M{"$in": []string{"PENDING", "SUCCEEDED", "EXPIRED"}},
 	}
 
 	if statusFilter != nil && *statusFilter != "" {
