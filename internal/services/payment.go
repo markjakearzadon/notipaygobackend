@@ -245,7 +245,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	log.Printf("Formatted mobile number for Xendit: %s", mobileNumber)
 
 	// Get ngrok URL from environment variable
-	ngrokURL := os.Getenv("NGROK_URL")
+	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")
 	if ngrokURL == "" {
 		log.Printf("NGROK_URL environment variable not set")
 		return nil, fmt.Errorf("NGROK_URL environment variable not set")
