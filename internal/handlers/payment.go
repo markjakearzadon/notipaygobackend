@@ -91,7 +91,7 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, userID)
+	_, err := h.service.UpdatePayment(r.Context(), paymentID, userID)
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		if strings.Contains(err.Error(), "payment not found") || strings.Contains(err.Error(), "user not authorized") {
@@ -102,11 +102,20 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//if err := json.NewEncoder(w).Encode(updatedPayment); err != nil {
+	//	log.Printf("Failed to encode updated payment: %v", err)
+	//	http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+	//}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(updatedPayment); err != nil {
-		log.Printf("Failed to encode updated payment: %v", err)
-		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+
+	_, err = w.Write([]byte(`{"message":"Payment successful! You can now close the browser and refresh the app"}`))
+	if err != nil {
+		log.Printf("Failed to write response: %v", err)
+		http.Error(w, `{"error":"Failed to write response"}`, http.StatusInternalServerError)
 	}
 }
 

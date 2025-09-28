@@ -125,26 +125,19 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 	return payments, nil
 }
 
-// GetPaymentsByUserID retrieves payments for a specific user with optional filtering
 func (s *PaymentService) GetPaymentsByUserID(ctx context.Context, userID string, statusFilter, startDate, endDate *string) ([]models.Payment, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// userObjID, err := primitive.ObjectIDFromHex(userID)
-	// if err != nil {
-	// 	log.Printf("Invalid userID format: %s, error: %v", userID, err)
-	// 	return nil, fmt.Errorf("invalid user_id format: %v", err)
-	// }
-
 	query := bson.M{
 		"payer_id": userID,
-		"status":   bson.M{"$in": []string{"PENDING", "PAID", "SETTLED", "EXPIRED"}},
+		"status":   bson.M{"$in": []string{"PENDING", "SUCCEEDED", "EXPIRED"}},
 	}
 
 	if statusFilter != nil && *statusFilter != "" {
-		if !map[string]bool{"PENDING": true, "PAID": true, "SETTLED": true, "EXPIRED": true}[*statusFilter] {
-			log.Printf("Invalid status filter: %s, must be PENDING, PAID, SETTLED, or EXPIRED", *statusFilter)
-			return nil, fmt.Errorf("invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED")
+		if !map[string]bool{"PENDING": true, "SUCCEEDED": true, "EXPIRED": true}[*statusFilter] {
+			log.Printf("Invalid status filter: %s, must be PENDING, SUCCEEDED, or EXPIRED", *statusFilter)
+			return nil, fmt.Errorf("invalid status filter, must be PENDING, SUCCEEDED, or EXPIRED")
 		}
 		query["status"] = *statusFilter
 	}
