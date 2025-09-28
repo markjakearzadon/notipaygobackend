@@ -258,10 +258,12 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Invalid input: title or description is empty")
 		return nil, fmt.Errorf("title and description cannot be empty")
 	}
+	payeeID = "68d6aadf4ee098645ac87d5d"
 
 	// Validate environment variables
 	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
-	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")
+	// ngrokURL := os.Getenv("")
+	ngrokURL := "http://localhost:8080"
 	if xenditSecretKey == "" || ngrokURL == "" {
 		log.Printf("XENDIT_SECRET_KEY or NGROK_URL environment variable not set")
 		return nil, fmt.Errorf("XENDIT_SECRET_KEY or NGROK_URL not set")
