@@ -69,49 +69,44 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
-	// Verify JWT
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
-		return
-	}
-
 	// Extract payment ID from URL
 	vars := mux.Vars(r)
 	paymentID := vars["paymentID"]
+	//if paymentID == "" {
+	//	http.Error(w, `{"error":"Payment ID is required"}`, http.StatusBadRequest)
+	//	return
+	//}
+
 	if paymentID == "" {
-		http.Error(w, `{"error":"Payment ID is required"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"something went wrong.. please try again in few minutes"}`, http.StatusBadRequest)
 		return
 	}
-
 	// Call service to update payment status to SUCCEEDED
-	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, "")
+	_, err := h.service.UpdatePayment(r.Context(), paymentID, "")
 	if err != nil {
 		log.Printf("Failed to update payment %s: %v", paymentID, err)
 		if strings.Contains(err.Error(), "payment not found") {
 			http.Error(w, `{"error":"payment not found"}`, http.StatusBadRequest)
 			return
 		}
-		http.Error(w, fmt.Sprintf(`{"error":"Failed to update payment: %v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to proceed: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
 
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//if err := json.NewEncoder(w).Encode(updatedPayment); err != nil {
+	//	log.Printf("Failed to encode updated payment: %v", err)
+	//	http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+	//}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(updatedPayment); err != nil {
-		log.Printf("Failed to encode updated payment: %v", err)
-		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+
+	_, err = w.Write([]byte(`{"message":"Payment successful! You can now close the browser."}`))
+	if err != nil {
+		log.Printf("Failed to write response: %v", err)
+		http.Error(w, `{"error":"Failed to write response"}`, http.StatusInternalServerError)
 	}
 }
 
