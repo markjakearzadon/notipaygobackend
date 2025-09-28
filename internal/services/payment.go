@@ -325,7 +325,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		"description":          description,
 		"payer_email":          payer.Email,
 		"success_redirect_url": ngrokURL + "/api/updatepayment/" + externalID,
-		"failure_redirect_url": ngrokURL + "/api/updatepayment/",
+		"failure_redirect_url": ngrokURL + "/api/updatepayment/asd",
 		"payment_methods":      []string{"GCASH"},
 		"invoice_duration":     "172800",
 		"reminder_time":        1,
