@@ -262,7 +262,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 
 	// Validate environment variables
 	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
-	ngrokURL := os.Getenv("NGROK_URL")
+	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")
 	// ngrokURL := "http://localhost:8080"
 	if xenditSecretKey == "" || ngrokURL == "" {
 		log.Printf("XENDIT_SECRET_KEY or NGROK_URL environment variable not set")
