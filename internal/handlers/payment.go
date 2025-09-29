@@ -215,6 +215,91 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
+		return
+	}
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		http.Error(w, `{"error":"Invalid token"}`, http.StatusUnauthorized)
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
+		return
+	}
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Amount      float64 `json:"amount"`
+		Title       string  `json:"title"`
+		Description string  `json:"description"`
+		ExcludeID   string  `json:"exclude_id"` // ID of the user to exclude (e.g., "trump")
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.Amount <= 0 {
+		http.Error(w, `{"error":"Amount must be positive"}`, http.StatusBadRequest)
+		return
+	}
+	if req.Title == "" {
+		http.Error(w, `{"error":"Title is required"}`, http.StatusBadRequest)
+		return
+	}
+	if req.Description == "" {
+		http.Error(w, `{"error":"Description is required"}`, http.StatusBadRequest)
+		return
+	}
+	if req.ExcludeID == "" {
+		http.Error(w, `{"error":"Exclude ID is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Fetch authenticated user to ensure they exist
+	authenticatedUser, err := h.service.GetUserByID(r.Context(), userID)
+	if err != nil {
+		log.Printf("Failed to fetch authenticated user %s: %v", userID, err)
+		if strings.Contains(err.Error(), "user not found") {
+			http.Error(w, `{"error":"Authenticated user not found"}`, http.StatusBadRequest)
+			return
+		}
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch authenticated user: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Failed to fetch authenticated user %s: %v", authenticatedUser, err)
+
+	payments, err := h.service.CreateBulkPayment(r.Context(), userID, req.ExcludeID, req.Amount, req.Title, req.Description)
+	if err != nil {
+		log.Printf("Failed to create bulk payment: %v", err)
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to create bulk payment: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(payments); err != nil {
+		log.Printf("Failed to encode payments: %v", err)
+		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+	}
+}
+
 func (h *PaymentHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("x-callback-token")
 	if token != os.Getenv("XENDIT_WEBHOOK_TOKEN") {

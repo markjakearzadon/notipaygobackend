@@ -78,6 +78,7 @@ func main() {
 	router.HandleFunc("/api/updatepayment/{paymentID}", paymentHandler.UpdatePayment).Methods("PATCH", "PUT", "GET")
 	router.HandleFunc("/api/userid/{userID}/payments", paymentHandler.GetPaymentsByUserID).Methods("GET")
 	router.HandleFunc("/api/payment/{paymentID}", paymentHandler.GetPaymentHandler).Methods("GET")
+	router.HandleFunc("/api/bulk-payment", paymentHandler.CreateBulkPayment).Methods("POST")
 
 	// Start server
 	port := os.Getenv("PORT")

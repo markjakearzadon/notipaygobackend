@@ -47,6 +47,30 @@ func (s *PaymentService) GetUserByPhoneNumber(ctx context.Context, phoneNumber s
 	return &user, nil
 }
 
+// GetUserByID retrieves a user by their ID
+func (s *PaymentService) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		log.Printf("Invalid userID format: %s, error: %v", userID, err)
+		return nil, fmt.Errorf("invalid user_id format: %v", err)
+	}
+
+	var user models.User
+	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user); err != nil {
+		if err == mongo.ErrNoDocuments {
+			log.Printf("User not found for ID %s", userID)
+			return nil, fmt.Errorf("user not found")
+		}
+		log.Printf("Failed to fetch user %s: %v", userID, err)
+		return nil, fmt.Errorf("failed to fetch user: %v", err)
+	}
+
+	return &user, nil
+}
+
 // EnsureIndexes creates necessary indexes for the payments collection
 func (s *PaymentService) EnsureIndexes(ctx context.Context) error {
 	indexModels := []mongo.IndexModel{
@@ -264,7 +288,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 
 	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
 	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")
-	if xenditSecretKey == "" || ngrokURL == "" {
+	if xenditSecretKey == "" {
 		log.Printf("XENDIT_SECRET_KEY or NGROK_URL environment variable not set")
 		return nil, fmt.Errorf("XENDIT_SECRET_KEY or NGROK_URL not set")
 	}
@@ -421,6 +445,56 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 
 	log.Printf("Payment created: ID=%s, InvoiceID=%s, CheckoutURL=%s", payment.ID, payment.InvoiceID, payment.CheckoutURL)
 	return payment, nil
+}
+
+func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUserID, excludeID string, amount float64, title, description string) ([]models.Payment, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Fetch all users except the excluded ID
+	query := bson.M{
+		"_id": bson.M{"$ne": excludeID},
+	}
+	cur, err := s.db.Collection("user").Find(ctx, query)
+	if err != nil {
+		log.Printf("Failed to fetch users: %v", err)
+		return nil, fmt.Errorf("failed to fetch users: %v", err)
+	}
+	defer cur.Close(ctx)
+
+	var users []models.User
+	if err := cur.All(ctx, &users); err != nil {
+		log.Printf("Failed to decode users: %v", err)
+		return nil, fmt.Errorf("failed to decode users: %v", err)
+	}
+
+	if len(users) == 0 {
+		log.Printf("No users found for bulk payment")
+		return nil, fmt.Errorf("no users found for bulk payment")
+	}
+
+	var payments []models.Payment
+	for _, user := range users {
+		// Skip the authenticated user to avoid self-payment
+		if user.ID.Hex() == authenticatedUserID {
+			continue
+		}
+
+		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68d6aadf4ee098645ac87d5d", amount, title, description)
+		if err != nil {
+			log.Printf("Failed to create payment for user %s: %v", user.ID.Hex(), err)
+			continue // Continue with next user instead of failing the entire operation
+		}
+		payments = append(payments, *payment)
+	}
+
+	if len(payments) == 0 {
+		log.Printf("No payments created for bulk payment")
+		return nil, fmt.Errorf("no payments created")
+	}
+
+	log.Printf("Created %d payments for bulk payment", len(payments))
+	return payments, nil
 }
 
 func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID string) error {
