@@ -245,18 +245,6 @@ func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Fetch authenticated user to ensure they exist
-	_, err := h.service.GetUserByID(r.Context(), req.UserID)
-	if err != nil {
-		log.Printf("Failed to fetch authenticated user %s: %v", req.UserID, err)
-		if strings.Contains(err.Error(), "user not found") {
-			http.Error(w, `{"error":"Authenticated user not found"}`, http.StatusBadRequest)
-			return
-		}
-		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch authenticated user: %v"}`, err), http.StatusInternalServerError)
-		return
-	}
-
 	payments, err := h.service.CreateBulkPayment(r.Context(), req.UserID, req.ExcludeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create bulk payment: %v", err)
