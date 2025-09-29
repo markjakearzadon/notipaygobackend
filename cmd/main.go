@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -14,6 +16,49 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+var (
+	dateValue = "2025-09-29" // default
+	dateMu    sync.RWMutex
+)
+
+func GetDateHandler(w http.ResponseWriter, r *http.Request) {
+	dateMu.RLock()
+	response := map[string]string{
+		"date": dateValue,
+	}
+	dateMu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func UpdateDateHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Date string `json:"date"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if body.Date == "" {
+		http.Error(w, "date field is required", http.StatusBadRequest)
+		return
+	}
+
+	dateMu.Lock()
+	dateValue = body.Date
+	dateMu.Unlock()
+
+	response := map[string]string{
+		"message": "Date updated successfully",
+		"date":    dateValue,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
 
 func main() {
 	// Load .env
@@ -79,6 +124,10 @@ func main() {
 	router.HandleFunc("/api/userid/{userID}/payments", paymentHandler.GetPaymentsByUserID).Methods("GET")
 	router.HandleFunc("/api/payment/{paymentID}", paymentHandler.GetPaymentHandler).Methods("GET")
 	router.HandleFunc("/api/bulk-payment", paymentHandler.CreateBulkPayment).Methods("POST")
+
+	// Date endpoints
+	router.HandleFunc("/api/date", GetDateHandler).Methods("GET")
+	router.HandleFunc("/api/date", UpdateDateHandler).Methods("PUT", "PATCH")
 
 	// Start server
 	port := os.Getenv("PORT")
