@@ -245,7 +245,7 @@ func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	payments, err := h.service.CreateBulkPayment(r.Context(), req.UserID, req.ExcludeID, req.Amount, req.Title, req.Description)
+	payments, err := h.service.CreateBulkPayment(r.Context(), "68d6aadf4ee098645ac87d5d", req.ExcludeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create bulk payment: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to create bulk payment: %v"}`, err), http.StatusInternalServerError)

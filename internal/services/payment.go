@@ -476,9 +476,10 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 	var payments []models.Payment
 	for _, user := range users {
 		// Skip the authenticated user to avoid self-payment
-		if user.ID.Hex() == authenticatedUserID {
+		if user.ID.Hex() == "68d6aadf4ee098645ac87d5d" {
 			continue
 		}
+		log.Printf("payment for user %s: %v", user.ID.Hex(), err)
 
 		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68d6aadf4ee098645ac87d5d", amount, title, description)
 		if err != nil {
