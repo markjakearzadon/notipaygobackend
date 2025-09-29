@@ -228,11 +228,6 @@ func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if req.UserID == "" {
-		http.Error(w, `{"error":"User ID is required"}`, http.StatusBadRequest)
-		return
-	}
-
 	if req.Amount <= 0 {
 		http.Error(w, `{"error":"Amount must be positive"}`, http.StatusBadRequest)
 		return
