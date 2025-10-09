@@ -290,7 +290,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Invalid input: payerName or payeeName is empty")
 		return nil, fmt.Errorf("payer_name and payee_name cannot be empty")
 	}
-	payeeID = "68d6aadf4ee098645ac87d5d"
+	payeeID = "68e7c6efa33ffd411aebee85"
 
 	xenditSecretKey := os.Getenv("XENDIT_SECRET_KEY")
 	ngrokURL := os.Getenv("RENDER_EXTERNAL_URL")

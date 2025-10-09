@@ -159,34 +159,6 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-		return
-	}
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
-		return
-	}
-
 	var req struct {
 		PayerCellphoneNumber string  `json:"payer_cellphone_number"`
 		PayeeID              string  `json:"payee_id"`
@@ -218,11 +190,6 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch user: %v"}`, err), http.StatusInternalServerError)
-		return
-	}
-
-	if payer.ID.Hex() != userID {
-		http.Error(w, `{"error":"Payer cellphone number must match authenticated user"}`, http.StatusForbidden)
 		return
 	}
 
@@ -357,7 +324,7 @@ func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Use hardcoded authenticatedUserID as per your instruction
-	authenticatedUserID := "68d6aadf4ee098645ac87d5d"
+	authenticatedUserID := "68e7c6efa33ffd411aebee85"
 	payments, err := h.service.CreateBulkPayment(r.Context(), authenticatedUserID, req.ExcludeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create bulk payment: %v", err)
