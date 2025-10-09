@@ -124,6 +124,7 @@ func main() {
 	router.HandleFunc("/api/userid/{userID}/payments", paymentHandler.GetPaymentsByUserID).Methods("GET")
 	router.HandleFunc("/api/payment/{paymentID}", paymentHandler.GetPaymentHandler).Methods("GET")
 	router.HandleFunc("/api/bulk-payment", paymentHandler.CreateBulkPayment).Methods("POST")
+	router.HandleFunc("/api/updatestatus/{userID}", userHandler.UpdateUserStatusHandler).Methods("PATCH", "PUT")
 
 	// Date endpoints
 	router.HandleFunc("/api/date", GetDateHandler).Methods("GET")
