@@ -71,13 +71,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	userID, err := h.service.CreateUser(r.Context(), user)
 	if err != nil {
 		log.Printf("Failed to create user: %v", err)
-		if strings.Contains(err.Error(), "is required") ||
-			strings.Contains(err.Error(), "invalid email format") ||
-			strings.Contains(err.Error(), "cellphone number must") ||
-			strings.Contains(err.Error(), "password must be at least") ||
-			strings.Contains(err.Error(), "already exists") ||
-			strings.Contains(err.Error(), "birthday cannot be in the future") ||
-			strings.Contains(err.Error(), "must not exceed") {
+		if strings.Contains(err.Error(), "is required") {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 			return
 		}
@@ -220,7 +214,6 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		"college_department": user.CollegeDepartment,
 		"cellphone_number":   user.CellphoneNumber,
 		"role":               user.Role,
-		"exp":                time.Now().Add(time.Hour * 24).Unix(),
 	})
 	tokenString, err := token.SignedString(jwtSecret)
 	if err != nil {

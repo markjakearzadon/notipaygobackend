@@ -78,9 +78,6 @@ func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string
 	if !regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`).MatchString(user.Email) {
 		return "", errors.New("invalid email format")
 	}
-	if !regexp.MustCompile(`^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$`).MatchString(user.Password) {
-		return "", errors.New("password must be at least 8 characters, with 1 uppercase, 1 lowercase, 1 number, and 1 special character")
-	}
 	if user.Birthday != nil && user.Birthday.After(time.Now()) {
 		return "", errors.New("birthday cannot be in the future")
 	}
