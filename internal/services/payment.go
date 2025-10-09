@@ -262,7 +262,7 @@ func (s *PaymentService) UpdatePayment(ctx context.Context, paymentID, userID st
 	return &updatedPayment, nil
 }
 
-func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID string, amount float64, title, description string) (*models.Payment, error) {
+func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID string, amount float64, title, description, payerName, payeeName string) (*models.Payment, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -270,7 +270,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	payeeID = strings.TrimSpace(payeeID)
 	title = strings.TrimSpace(title)
 	description = strings.TrimSpace(description)
-	log.Printf("Creating payment: payerID=%s, payeeID=%s, amount=%f, title=%s, description=%s", payerID, payeeID, amount, title, description)
+	payerName = strings.TrimSpace(payerName)
+	payeeName = strings.TrimSpace(payeeName)
+	log.Printf("Creating payment: payerID=%s, payeeID=%s, amount=%f, title=%s, description=%s, payerName=%s, payeeName=%s", payerID, payeeID, amount, title, description, payerName, payeeName)
 
 	if payerID == "" || payeeID == "" {
 		log.Printf("Invalid input: payerID or payeeID is empty")
@@ -283,6 +285,10 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	if title == "" || description == "" {
 		log.Printf("Invalid input: title or description is empty")
 		return nil, fmt.Errorf("title and description cannot be empty")
+	}
+	if payerName == "" || payeeName == "" {
+		log.Printf("Invalid input: payerName or payeeName is empty")
+		return nil, fmt.Errorf("payer_name and payee_name cannot be empty")
 	}
 	payeeID = "68d6aadf4ee098645ac87d5d"
 
@@ -434,7 +440,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		ID:          externalID,
 		ReferenceID: externalID,
 		PayerID:     payerID,
+		PayerName:   payerName,
 		PayeeID:     payeeID,
+		PayeeName:   payeeName,
 		Amount:      amount,
 		Title:       title,
 		Description: description,
@@ -450,7 +458,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		return nil, fmt.Errorf("failed to save payment: %v", err)
 	}
 
-	log.Printf("Payment created: ID=%s, InvoiceID=%s, CheckoutURL=%s", payment.ID, payment.InvoiceID, payment.CheckoutURL)
+	log.Printf("Payment created: ID=%s, InvoiceID=%s, CheckoutURL=%s, PayerName=%s, PayeeName=%s", payment.ID, payment.InvoiceID, payment.CheckoutURL, payment.PayerName, payment.PayeeName)
 	return payment, nil
 }
 
@@ -488,7 +496,26 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 		}
 		log.Printf("Creating payment for user %s", user.ID.Hex())
 
-		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68d6aadf4ee098645ac87d5d", amount, title, description)
+		// Combine names for payer
+		payerName := user.FirstName
+		if user.MiddleInitial != "" {
+			payerName += " " + user.MiddleInitial
+		}
+		payerName += " " + user.LastName
+
+		// Fetch payee to get name
+		payee, err := s.GetUserByID(ctx, "68d6aadf4ee098645ac87d5d")
+		if err != nil {
+			log.Printf("Failed to fetch payee for user %s: %v", user.ID.Hex(), err)
+			continue
+		}
+		payeeName := payee.FirstName
+		if payee.MiddleInitial != "" {
+			payeeName += " " + payee.MiddleInitial
+		}
+		payeeName += " " + payee.LastName
+
+		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68d6aadf4ee098645ac87d5d", amount, title, description, payerName, payeeName)
 		if err != nil {
 			log.Printf("Failed to create payment for user %s: %v", user.ID.Hex(), err)
 			continue // Continue with next user instead of failing the entire operation

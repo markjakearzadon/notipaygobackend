@@ -229,8 +229,8 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	// Use hardcoded payeeID as per your instruction
 	req.PayeeID = "68d6aadf4ee098645ac87d5d"
 
-	// Validate payee
-	_, err = h.service.GetUserByID(r.Context(), req.PayeeID)
+	// Fetch payee to get name
+	payee, err := h.service.GetUserByID(r.Context(), req.PayeeID)
 	if err != nil {
 		log.Printf("Failed to fetch payee %s: %v", req.PayeeID, err)
 		if strings.Contains(err.Error(), "user not found") {
@@ -254,7 +254,19 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payment, err := h.service.CreatePayment(r.Context(), payer.ID.Hex(), req.PayeeID, req.Amount, req.Title, req.Description)
+	// Combine names for payer and payee
+	payerName := payer.FirstName
+	if payer.MiddleInitial != "" {
+		payerName += " " + payer.MiddleInitial
+	}
+	payerName += " " + payer.LastName
+	payeeName := payee.FirstName
+	if payee.MiddleInitial != "" {
+		payeeName += " " + payee.MiddleInitial
+	}
+	payeeName += " " + payee.LastName
+
+	payment, err := h.service.CreatePayment(r.Context(), payer.ID.Hex(), req.PayeeID, req.Amount, req.Title, req.Description, payerName, payeeName)
 	if err != nil {
 		log.Printf("Failed to create payment: %v", err)
 		if strings.Contains(err.Error(), "payer not found") || strings.Contains(err.Error(), "payee not found") ||

@@ -8,7 +8,9 @@ type Payment struct {
 	ID             string    `bson:"_id,omitempty" json:"id"`
 	ReferenceID    string    `bson:"reference_id" json:"reference_id"`
 	PayerID        string    `bson:"payer_id" json:"payer_id"`
+	PayerName      string    `bson:"payer_name" json:"payer_name"`
 	PayeeID        string    `bson:"payee_id" json:"payee_id"`
+	PayeeName      string    `bson:"payee_name" json:"payee_name"`
 	Amount         float64   `bson:"amount" json:"amount"`
 	Title          string    `bson:"title" json:"title"`
 	Description    string    `bson:"description" json:"description"`
