@@ -3,17 +3,19 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/models"
 	"github.com/markjakearzadon/notipay-gobackend.git/internal/services"
-	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("myjwtsecretkey")
+var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 type UserHandler struct {
 	service *services.UserService
@@ -23,60 +25,112 @@ func NewUserHandler(service *services.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-// CreateUser creates a new user with required fields including role
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
-	var input struct {
-		models.User
-		ConfirmPassword string `json:"confirm_password"`
+	var req struct {
+		FirstName         string  `json:"first_name"`
+		MiddleInitial     string  `json:"middle_initial"`
+		LastName          string  `json:"last_name"`
+		CellphoneNumber   string  `json:"cellphone_number"`
+		Email             string  `json:"email"`
+		CollegeDepartment string  `json:"college_department"`
+		Birthday          *string `json:"birthday"`
+		Password          string  `json:"password"`
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, `{"error":"Invalid input"}`, http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 		return
 	}
 
-	if input.FirstName == "" || input.LastName == "" || input.Email == "" || input.CellphoneNumber == "" || input.Password == "" || input.Role == "" {
-		http.Error(w, `{"error":"Missing required fields: first_name, last_name, email, cellphone_number, password, and role are required"}`, http.StatusBadRequest)
-		return
-	}
-
-	if input.Password != input.ConfirmPassword {
-		http.Error(w, `{"error":"Passwords do not match"}`, http.StatusBadRequest)
-		return
-	}
-
-	// Validate role
-	if input.Role != "admin" && input.Role != "user" {
-		http.Error(w, `{"error":"Invalid role: must be 'admin' or 'user'"}`, http.StatusBadRequest)
-		return
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-	if err != nil {
-		http.Error(w, `{"error":"Internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-
-	input.User.Password = string(hashedPassword)
-
-	id, err := h.service.CreateUser(r.Context(), &input.User)
-	if err != nil {
-		if err.Error() == "email already exists" {
-			http.Error(w, `{"error":"Email already exists"}`, http.StatusBadRequest)
+	// Convert birthday string to time.Time
+	var birthday *time.Time
+	if req.Birthday != nil {
+		parsedBirthday, err := time.Parse(time.RFC3339, *req.Birthday)
+		if err != nil {
+			http.Error(w, `{"error":"Invalid birthday format, must be RFC3339 (e.g., 2000-01-01T00:00:00Z)"}`, http.StatusBadRequest)
 			return
 		}
-		http.Error(w, `{"error":"Failed to create user"}`, http.StatusInternalServerError)
+		birthday = &parsedBirthday
+	}
+
+	user := &models.User{
+		FirstName:         req.FirstName,
+		MiddleInitial:     req.MiddleInitial,
+		LastName:          req.LastName,
+		CellphoneNumber:   req.CellphoneNumber,
+		Email:             req.Email,
+		CollegeDepartment: req.CollegeDepartment,
+		Birthday:          birthday,
+		Password:          req.Password,
+	}
+
+	userID, err := h.service.CreateUser(r.Context(), user)
+	if err != nil {
+		log.Printf("Failed to create user: %v", err)
+		if strings.Contains(err.Error(), "is required") ||
+			strings.Contains(err.Error(), "invalid email format") ||
+			strings.Contains(err.Error(), "cellphone number must") ||
+			strings.Contains(err.Error(), "password must be at least") ||
+			strings.Contains(err.Error(), "already exists") ||
+			strings.Contains(err.Error(), "birthday cannot be in the future") ||
+			strings.Contains(err.Error(), "must not exceed") {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to create user: %v"}`, err), http.StatusInternalServerError)
 		return
+	}
+
+	// Fetch the created user to include in response
+	createdUser, err := h.service.GetUser(r.Context(), userID)
+	if err != nil {
+		log.Printf("Failed to fetch created user %s: %v", userID, err)
+		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch created user: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	// Generate JWT
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+		"role":    createdUser.Role,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		log.Printf("Failed to generate JWT: %v", err)
+		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare response (omit password)
+	responseUser := map[string]interface{}{
+		"id":                 createdUser.ID.Hex(),
+		"first_name":         createdUser.FirstName,
+		"middle_initial":     createdUser.MiddleInitial,
+		"last_name":          createdUser.LastName,
+		"cellphone_number":   createdUser.CellphoneNumber,
+		"email":              createdUser.Email,
+		"college_department": createdUser.CollegeDepartment,
+		"birthday":           createdUser.Birthday,
+		"role":               createdUser.Role,
+		"status":             createdUser.Status,
+		"created_at":         createdUser.CreatedAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"id": id})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "User created successfully",
+		"user":    responseUser,
+		"token":   tokenString,
+	}); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+	}
 }
 
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
@@ -87,12 +141,14 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	users, err := h.service.UserList(r.Context())
 	if err != nil {
+		log.Printf("Failed to fetch users: %v", err)
 		http.Error(w, `{"error":"Failed to fetch users"}`, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(&users); err != nil {
+	if err := json.NewEncoder(w).Encode(users); err != nil {
+		log.Printf("Failed to encode response: %v", err)
 		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
 	}
 }
@@ -129,7 +185,6 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req LoginRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid input"}`, http.StatusBadRequest)
 		return
@@ -142,6 +197,7 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
+		log.Printf("Login failed for email %s: %v", req.Email, err)
 		if err.Error() == "invalid email or password" {
 			http.Error(w, `{"error":"Invalid email or password"}`, http.StatusUnauthorized)
 			return
@@ -168,6 +224,7 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 	})
 	tokenString, err := token.SignedString(jwtSecret)
 	if err != nil {
+		log.Printf("Failed to generate JWT: %v", err)
 		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
 		return
 	}
@@ -189,12 +246,11 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode response: %v", err)
 		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
 	}
 }
 
-// UpdateUserStatusHandler toggles the status of a user between "pending" and "active".
-// Only accessible to users with the "admin" role.
 func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
@@ -207,7 +263,6 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 		http.Error(w, `{"error":"Authorization token required"}`, http.StatusUnauthorized)
 		return
 	}
-	// Remove "Bearer " prefix if present
 	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
 		tokenString = tokenString[7:]
 	}
@@ -219,6 +274,7 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 		return jwtSecret, nil
 	})
 	if err != nil || !token.Valid {
+		log.Printf("Invalid or expired token: %v", err)
 		http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
 		return
 	}
@@ -246,6 +302,7 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 	// Call service to toggle status
 	err = h.service.UpdateUserStatus(r.Context(), input.ID)
 	if err != nil {
+		log.Printf("Failed to update user status %s: %v", input.ID, err)
 		if err.Error() == "user not found" {
 			http.Error(w, `{"error":"User not found"}`, http.StatusNotFound)
 			return
@@ -261,13 +318,14 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 	// Fetch the updated user to get the new status
 	user, err := h.service.GetUser(r.Context(), input.ID)
 	if err != nil {
+		log.Printf("Failed to fetch updated user %s: %v", input.ID, err)
 		http.Error(w, `{"error":"Failed to fetch updated user"}`, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "User status updated successfully",
 		"status":  user.Status,
 		"user": map[string]interface{}{
@@ -278,8 +336,13 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 			"college_department": user.CollegeDepartment,
 			"email":              user.Email,
 			"cellphone_number":   user.CellphoneNumber,
-			"created_at":         user.CreatedAt,
+			"birthday":           user.Birthday,
 			"role":               user.Role,
+			"status":             user.Status,
+			"created_at":         user.CreatedAt,
 		},
-	})
+	}); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+	}
 }
