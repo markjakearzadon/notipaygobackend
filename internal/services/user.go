@@ -31,6 +31,11 @@ func NewUserService(db *mongo.Database) *UserService {
 }
 
 func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string, error) {
+	// Validate required fields
+	if user.FirstName == "" || user.LastName == "" || user.Email == "" || user.CellphoneNumber == "" || user.Password == "" {
+		return "", errors.New("missing required fields: first_name, last_name, email, cellphone_number, and password are required")
+	}
+
 	count, err := s.collection.CountDocuments(ctx, bson.M{"email": user.Email})
 	if err != nil {
 		return "", err
@@ -63,16 +68,19 @@ func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string
 func (s *UserService) GetUser(ctx context.Context, id string) (*models.User, error) {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("invalid user ID")
 	}
 
 	var user models.User
 	err = s.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
 	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errors.New("user not found")
+		}
 		return nil, err
 	}
 
-	return &user, err
+	return &user, nil
 }
 
 func (s *UserService) UserList(ctx context.Context) ([]models.User, error) {
@@ -95,26 +103,38 @@ func (s *UserService) UserList(ctx context.Context) ([]models.User, error) {
 }
 
 // DeleteUser removes a user document from the database by its id (string)
-// parameter
-// (context, id)
-// returns:
-//   - string: the id of the deleted user if the operation was successful.
-//   - error
+// Parameters:
+//   - ctx: Context for the database operation.
+//   - id: String representation of the user's ObjectID.
+//
+// Returns:
+//   - string: The ID of the deleted user if successful.
+//   - error: Nil if successful, or an error if the operation fails.
 func (s *UserService) DeleteUser(ctx context.Context, id string) (string, error) {
 	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return "", errors.New("invalid user ID")
+	}
+
+	result, err := s.collection.DeleteOne(ctx, bson.M{"_id": objID})
 	if err != nil {
 		return "", err
 	}
 
-	_, err = s.collection.DeleteOne(ctx, bson.M{"_id": objID})
+	if result.DeletedCount == 0 {
+		return "", errors.New("user not found")
+	}
 
-	return id, err
+	return id, nil
 }
 
 func (s *UserService) Login(ctx context.Context, email, password string) (*models.User, error) {
 	var user models.User
 	err := s.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errors.New("invalid email or password")
+		}
 		return nil, err
 	}
 
@@ -122,22 +142,29 @@ func (s *UserService) Login(ctx context.Context, email, password string) (*model
 		return nil, errors.New("your account is pending approval. Please contact the admin for assistance")
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(user.HPassword), []byte(password))
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 	if err != nil {
-		return nil, errors.New("invalid password")
+		return nil, errors.New("invalid email or password")
 	}
 
 	return &user, nil
 }
 
+// UpdateUserStatus toggles the status of a user identified by their ID between "pending" and "active".
+// Parameters:
+//   - ctx: Context for the database operation.
+//   - id: String representation of the user's ObjectID.
+//
+// Returns:
+//   - error: Nil if successful, or an error if the operation fails.
 func (s *UserService) UpdateUserStatus(ctx context.Context, id string) error {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return errors.New("invalid user ID")
 	}
 
+	// Fetch the current user to check their status
 	var user models.User
-
 	err = s.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -146,6 +173,7 @@ func (s *UserService) UpdateUserStatus(ctx context.Context, id string) error {
 		return err
 	}
 
+	// Toggle status between "pending" and "active"
 	newStatus := "active"
 	if user.Status == "active" {
 		newStatus = "pending"

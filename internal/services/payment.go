@@ -35,7 +35,7 @@ func (s *PaymentService) GetUserByPhoneNumber(ctx context.Context, phoneNumber s
 	defer cancel()
 
 	var user models.User
-	if err := s.db.Collection("user").FindOne(ctx, bson.M{"gcash_number": phoneNumber}).Decode(&user); err != nil {
+	if err := s.db.Collection("user").FindOne(ctx, bson.M{"cellphone_number": phoneNumber}).Decode(&user); err != nil {
 		if err == mongo.ErrNoDocuments {
 			log.Printf("User not found for phone number %s", phoneNumber)
 			return nil, fmt.Errorf("user not found")
@@ -123,8 +123,8 @@ func (s *PaymentService) GetPayments(ctx context.Context, statusFilter, startDat
 
 	if statusFilter != nil && *statusFilter != "" {
 		if !map[string]bool{"PENDING": true, "SUCCEEDED": true, "EXPIRED": true}[*statusFilter] {
-			log.Printf("Invalid status filter: %s, must be PENDING, PAID, SETTLED, or EXPIRED", *statusFilter)
-			return nil, fmt.Errorf("invalid status filter, must be PENDING, PAID, SETTLED, or EXPIRED")
+			log.Printf("Invalid status filter: %s, must be PENDING, SUCCEEDED, or EXPIRED", *statusFilter)
+			return nil, fmt.Errorf("invalid status filter, must be PENDING, SUCCEEDED, or EXPIRED")
 		}
 		query["status"] = *statusFilter
 	}
@@ -313,7 +313,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Failed to fetch payer %s: %v", payerID, err)
 		return nil, fmt.Errorf("failed to fetch payer: %v", err)
 	}
-	log.Printf("Payer found: ID=%s, FullName=%s, Email=%s", payer.ID.Hex(), payer.FullName, payer.Email)
+	log.Printf("Payer found: ID=%s, FirstName=%s, LastName=%s, Email=%s", payer.ID.Hex(), payer.FirstName, payer.LastName, payer.Email)
 	if err := s.db.Collection("user").FindOne(ctx, bson.M{"_id": payeeObjID}).Decode(&payee); err != nil {
 		if err == mongo.ErrNoDocuments {
 			log.Printf("Payee not found for ID %s", payeeID)
@@ -322,20 +322,27 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		log.Printf("Failed to fetch payee %s: %v", payeeID, err)
 		return nil, fmt.Errorf("failed to fetch payee: %v", err)
 	}
-	log.Printf("Payee found: ID=%s, FullName=%s, GCashNumber=%s", payee.ID.Hex(), payee.FullName, payee.GCashNumber)
+	log.Printf("Payee found: ID=%s, FirstName=%s, LastName=%s, CellphoneNumber=%s", payee.ID.Hex(), payee.FirstName, payee.LastName, payee.CellphoneNumber)
 
 	if payer.Email == "" {
 		log.Printf("Payer email missing for ID %s", payerID)
 		return nil, fmt.Errorf("payer email required for invoice creation")
 	}
-	if payee.GCashNumber == "" {
-		log.Printf("Payee GCash number missing for ID %s", payeeID)
-		return nil, fmt.Errorf("payee GCash number missing")
+	if payee.CellphoneNumber == "" {
+		log.Printf("Payee CellphoneNumber missing for ID %s", payeeID)
+		return nil, fmt.Errorf("payee CellphoneNumber missing")
 	}
-	if !strings.HasPrefix(payee.GCashNumber, "0") || len(payee.GCashNumber) != 11 {
-		log.Printf("Invalid payee GCash number format: %s", payee.GCashNumber)
-		return nil, fmt.Errorf("payee GCash number must start with 0 and be 11 digits")
+	if !strings.HasPrefix(payee.CellphoneNumber, "0") || len(payee.CellphoneNumber) != 11 {
+		log.Printf("Invalid payee CellphoneNumber format: %s", payee.CellphoneNumber)
+		return nil, fmt.Errorf("payee CellphoneNumber must start with 0 and be 11 digits")
 	}
+
+	// Combine FirstName, MiddleInitial, and LastName for Xendit
+	givenNames := payer.FirstName
+	if payer.MiddleInitial != "" {
+		givenNames += " " + payer.MiddleInitial
+	}
+	givenNames += " " + payer.LastName
 
 	externalID := primitive.NewObjectID().Hex()
 	invoiceReq := map[string]interface{}{
@@ -350,9 +357,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 		"invoice_duration":     "172800",
 		"reminder_time":        1,
 		"customer": map[string]interface{}{
-			"given_names":   payer.FullName,
+			"given_names":   givenNames,
 			"email":         payer.Email,
-			"mobile_number": "+63" + payer.GCashNumber[1:],
+			"mobile_number": "+63" + payer.CellphoneNumber[1:],
 		},
 		"items": []map[string]interface{}{
 			{
@@ -476,10 +483,10 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 	var payments []models.Payment
 	for _, user := range users {
 		// Skip the authenticated user to avoid self-payment
-		if user.ID.Hex() == "68d6aadf4ee098645ac87d5d" {
+		if user.ID.Hex() == authenticatedUserID {
 			continue
 		}
-		log.Printf("payment for user %s: %v", user.ID.Hex(), err)
+		log.Printf("Creating payment for user %s", user.ID.Hex())
 
 		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68d6aadf4ee098645ac87d5d", amount, title, description)
 		if err != nil {
@@ -539,23 +546,30 @@ func (s *PaymentService) CreateDisbursement(ctx context.Context, paymentID strin
 		return fmt.Errorf("failed to fetch payee: %v", err)
 	}
 
-	if payee.GCashNumber == "" {
-		log.Printf("Payee GCash number missing for ID %s", payment.PayeeID)
-		return fmt.Errorf("payee GCash number missing")
+	if payee.CellphoneNumber == "" {
+		log.Printf("Payee CellphoneNumber missing for ID %s", payment.PayeeID)
+		return fmt.Errorf("payee CellphoneNumber missing")
 	}
-	if !strings.HasPrefix(payee.GCashNumber, "0") || len(payee.GCashNumber) != 11 {
-		log.Printf("Invalid payee GCash number format: %s", payee.GCashNumber)
-		return fmt.Errorf("payee GCash number must start with 0 and be 11 digits")
+	if !strings.HasPrefix(payee.CellphoneNumber, "0") || len(payee.CellphoneNumber) != 11 {
+		log.Printf("Invalid payee CellphoneNumber format: %s", payee.CellphoneNumber)
+		return fmt.Errorf("payee CellphoneNumber must start with 0 and be 11 digits")
 	}
 
-	accountNumber := payee.GCashNumber
+	accountNumber := payee.CellphoneNumber
 	log.Printf("Using account number for disbursement: %s", accountNumber)
+
+	// Combine FirstName, MiddleInitial, and LastName for Xendit
+	accountHolderName := payee.FirstName
+	if payee.MiddleInitial != "" {
+		accountHolderName += " " + payee.MiddleInitial
+	}
+	accountHolderName += " " + payee.LastName
 
 	disReq := map[string]interface{}{
 		"reference_id":        payment.ReferenceID + "-disb",
 		"channel_code":        "PH_GCASH",
 		"account_number":      accountNumber,
-		"account_holder_name": payee.FullName,
+		"account_holder_name": accountHolderName,
 		"amount":              payment.Amount,
 		"currency":            "PHP",
 		"description":         payment.Title,
