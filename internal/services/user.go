@@ -129,3 +129,42 @@ func (s *UserService) Login(ctx context.Context, email, password string) (*model
 
 	return &user, nil
 }
+
+func (s *UserService) UpdateUserStatus(ctx context.Context, id string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return errors.New("invalid user ID")
+	}
+
+	var user models.User
+
+	err = s.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return errors.New("user not found")
+		}
+		return err
+	}
+
+	newStatus := "active"
+	if user.Status == "active" {
+		newStatus = "pending"
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"status": newStatus,
+		},
+	}
+
+	result, err := s.collection.UpdateOne(ctx, bson.M{"_id": objID}, update)
+	if err != nil {
+		return err
+	}
+
+	if result.MatchedCount == 0 {
+		return errors.New("user not found")
+	}
+
+	return nil
+}

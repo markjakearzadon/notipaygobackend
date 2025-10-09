@@ -166,3 +166,55 @@ func (h *UserHandler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
 	}
 }
+
+// UpdateUserStatusHandler toggles the status of a user between "pending" and "active".
+// Only accessible to users with the "admin" role.
+func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Decode request body
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, `{"error":"Invalid input"}`, http.StatusBadRequest)
+		return
+	}
+
+	if input.ID == "" {
+		http.Error(w, `{"error":"User ID is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Call service to toggle status
+	err := h.service.UpdateUserStatus(r.Context(), input.ID)
+	if err != nil {
+		if err.Error() == "user not found" {
+			http.Error(w, `{"error":"User not found"}`, http.StatusNotFound)
+			return
+		}
+		if err.Error() == "invalid user ID" {
+			http.Error(w, `{"error":"Invalid user ID"}`, http.StatusBadRequest)
+			return
+		}
+		http.Error(w, `{"error":"Failed to update status"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch the updated user to get the new status
+	user, err := h.service.GetUser(r.Context(), input.ID)
+	if err != nil {
+		http.Error(w, `{"error":"Failed to fetch updated user"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "User status updated successfully",
+		"status":  user.Status,
+	})
+}
