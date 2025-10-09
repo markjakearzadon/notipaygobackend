@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -250,34 +249,6 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Verify JWT and check for admin role
-	tokenString := r.Header.Get("Authorization")
-	if tokenString == "" {
-		http.Error(w, `{"error":"Authorization token required"}`, http.StatusUnauthorized)
-		return
-	}
-	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
-		tokenString = tokenString[7:]
-	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		log.Printf("Invalid or expired token: %v", err)
-		http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || claims["role"] != "admin" {
-		http.Error(w, `{"error":"Admin access required"}`, http.StatusForbidden)
-		return
-	}
-
 	// Decode request body
 	var input struct {
 		ID string `json:"id"`
@@ -293,7 +264,7 @@ func (h *UserHandler) UpdateUserStatusHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Call service to toggle status
-	err = h.service.UpdateUserStatus(r.Context(), input.ID)
+	err := h.service.UpdateUserStatus(r.Context(), input.ID)
 	if err != nil {
 		log.Printf("Failed to update user status %s: %v", input.ID, err)
 		if err.Error() == "user not found" {
