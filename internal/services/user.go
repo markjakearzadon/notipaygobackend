@@ -47,6 +47,10 @@ func (s *UserService) CreateUser(ctx context.Context, user *models.User) (string
 		user.Role = "user"
 	}
 
+	if user.Status == "" {
+		user.Status = "pending"
+	}
+
 	result, err := s.collection.InsertOne(ctx, user)
 	if err != nil {
 		return "", err
@@ -112,6 +116,10 @@ func (s *UserService) Login(ctx context.Context, email, password string) (*model
 	err := s.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
 		return nil, err
+	}
+
+	if user.Status == "pending" {
+		return nil, errors.New("your account is pending approval. Please contact the admin for assistance")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.HPassword), []byte(password))

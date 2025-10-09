@@ -14,4 +14,5 @@ type User struct {
 	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
 	GCashNumber string             `bson:"gcash_number" json:"gcash_number"` // e.g., "09123456789"
 	Role        string             `bson:"role" json:"role"`                 // e.g., "admin", "user"
+	Status      string             `bson:"status" json:"status"`             // e.g., "admin", "user"
 }
