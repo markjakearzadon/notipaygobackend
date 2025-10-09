@@ -227,7 +227,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use hardcoded payeeID as per your instruction
-	req.PayeeID = "68d6aadf4ee098645ac87d5d"
+	req.PayeeID = "68e7c6efa33ffd411aebee85"
 
 	// Fetch payee to get name
 	payee, err := h.service.GetUserByID(r.Context(), req.PayeeID)
