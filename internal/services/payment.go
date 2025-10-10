@@ -504,7 +504,7 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 		payerName += " " + user.LastName
 
 		// Fetch payee to get name
-		payee, err := s.GetUserByID(ctx, "68d6aadf4ee098645ac87d5d")
+		payee, err := s.GetUserByID(ctx, "68e7c6efa33ffd411aebee85")
 		if err != nil {
 			log.Printf("Failed to fetch payee for user %s: %v", user.ID.Hex(), err)
 			continue
@@ -515,7 +515,7 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 		}
 		payeeName += " " + payee.LastName
 
-		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68d6aadf4ee098645ac87d5d", amount, title, description, payerName, payeeName)
+		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68e7c6efa33ffd411aebee85", amount, title, description, payerName, payeeName)
 		if err != nil {
 			log.Printf("Failed to create payment for user %s: %v", user.ID.Hex(), err)
 			continue // Continue with next user instead of failing the entire operation

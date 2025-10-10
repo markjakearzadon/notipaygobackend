@@ -256,50 +256,12 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-		return
-	}
-	_, ok = claims["user_id"].(string)
-	if !ok {
-		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
-		return
-	}
-
-	// Only admins can create bulk payments
-	if claims["role"] != "admin" {
-		http.Error(w, `{"error":"Admin access required"}`, http.StatusForbidden)
-		return
-	}
-
 	var req struct {
 		Amount      float64 `json:"amount"`
 		Title       string  `json:"title"`
 		Description string  `json:"description"`
-		ExcludeID   string  `json:"exclude_id"`
+		ExcludeID   string  `json:"exclude_id"` // ID of the user to exclude (e.g., "trump")
+		UserID      string  `json:"user_id"`    // Add user_id to request body
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
@@ -323,15 +285,9 @@ func (h *PaymentHandler) CreateBulkPayment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Use hardcoded authenticatedUserID as per your instruction
-	authenticatedUserID := "68e7c6efa33ffd411aebee85"
-	payments, err := h.service.CreateBulkPayment(r.Context(), authenticatedUserID, req.ExcludeID, req.Amount, req.Title, req.Description)
+	payments, err := h.service.CreateBulkPayment(r.Context(), "68e7c6efa33ffd411aebee85", req.ExcludeID, req.Amount, req.Title, req.Description)
 	if err != nil {
 		log.Printf("Failed to create bulk payment: %v", err)
-		if strings.Contains(err.Error(), "no users found") || strings.Contains(err.Error(), "no payments created") {
-			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
-			return
-		}
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to create bulk payment: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
