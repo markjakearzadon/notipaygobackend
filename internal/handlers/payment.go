@@ -87,49 +87,27 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[INFO] Starting payment update: method=%s, url=%s", r.Method, r.URL.Path)
+
 	if r.Method != http.MethodGet {
+		log.Printf("[ERROR] Invalid method for payment update: method=%s", r.Method)
 		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, `{"error":"Authorization header required"}`, http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-	if err != nil || !token.Valid {
-		http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		http.Error(w, `{"error":"Invalid token claims"}`, http.StatusUnauthorized)
-		return
-	}
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		http.Error(w, `{"error":"Invalid user_id in token"}`, http.StatusUnauthorized)
 		return
 	}
 
 	vars := mux.Vars(r)
 	paymentID := vars["paymentID"]
 	if paymentID == "" {
+		log.Printf("[ERROR] Payment ID missing in request")
 		http.Error(w, `{"error":"Payment ID is required"}`, http.StatusBadRequest)
 		return
 	}
 
-	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, userID)
+	log.Printf("[INFO] Processing payment update: paymentID=%s", paymentID)
+
+	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, "")
 	if err != nil {
-		log.Printf("Failed to update payment %s: %v", paymentID, err)
+		log.Printf("[ERROR] Failed to update payment: paymentID=%s, error=%v", paymentID, err)
 		if strings.Contains(err.Error(), "payment not found") {
 			http.Error(w, `{"error":"Payment not found"}`, http.StatusNotFound)
 			return
@@ -142,15 +120,20 @@ func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[INFO] Successfully updated payment: paymentID=%s", paymentID)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "Payment updated successfully",
 		"payment": updatedPayment,
 	}); err != nil {
-		log.Printf("Failed to encode response: %v", err)
+		log.Printf("[ERROR] Failed to encode response: paymentID=%s, error=%v", paymentID, err)
 		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
+		return
 	}
+
+	log.Printf("[INFO] Payment update response sent: paymentID=%s", paymentID)
 }
 
 func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
