@@ -463,8 +463,12 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 }
 
 func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUserID, excludeID string, amount float64, title, description string) ([]models.Payment, error) {
+	// Initialize context with timeout
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+
+	log.Printf("[INFO] Starting bulk payment creation: authenticatedUserID=%s, excludeID=%s, amount=%.2f, title=%s",
+		authenticatedUserID, excludeID, amount, title)
 
 	// Fetch all users except the excluded ID
 	query := bson.M{
@@ -472,19 +476,21 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 	}
 	cur, err := s.db.Collection("user").Find(ctx, query)
 	if err != nil {
-		log.Printf("Failed to fetch users: %v", err)
+		log.Printf("[ERROR] Failed to fetch users: error=%v, query=%v", err, query)
 		return nil, fmt.Errorf("failed to fetch users: %v", err)
 	}
 	defer cur.Close(ctx)
 
 	var users []models.User
 	if err := cur.All(ctx, &users); err != nil {
-		log.Printf("Failed to decode users: %v", err)
+		log.Printf("[ERROR] Failed to decode users: error=%v", err)
 		return nil, fmt.Errorf("failed to decode users: %v", err)
 	}
 
+	log.Printf("[INFO] Found %d users for bulk payment processing", len(users))
+
 	if len(users) == 0 {
-		log.Printf("No users found for bulk payment")
+		log.Printf("[WARN] No users found for bulk payment: excludeID=%s", excludeID)
 		return nil, fmt.Errorf("no users found for bulk payment")
 	}
 
@@ -492,9 +498,11 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 	for _, user := range users {
 		// Skip the authenticated user to avoid self-payment
 		if user.ID.Hex() == authenticatedUserID {
+			log.Printf("[INFO] Skipping self-payment for user: userID=%s", user.ID.Hex())
 			continue
 		}
-		log.Printf("Creating payment for user %s", user.ID.Hex())
+
+		log.Printf("[INFO] Processing payment for user: userID=%s", user.ID.Hex())
 
 		// Combine names for payer
 		payerName := user.FirstName
@@ -506,7 +514,8 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 		// Fetch payee to get name
 		payee, err := s.GetUserByID(ctx, "68e7c6efa33ffd411aebee85")
 		if err != nil {
-			log.Printf("Failed to fetch payee for user %s: %v", user.ID.Hex(), err)
+			log.Printf("[ERROR] Failed to fetch payee for user: userID=%s, payeeID=%s, error=%v",
+				user.ID.Hex(), "68e7c6efa33ffd411aebee85", err)
 			continue
 		}
 		payeeName := payee.FirstName
@@ -515,20 +524,29 @@ func (s *PaymentService) CreateBulkPayment(ctx context.Context, authenticatedUse
 		}
 		payeeName += " " + payee.LastName
 
+		log.Printf("[INFO] Creating payment: payer=%s, payee=%s, amount=%.2f, title=%s",
+			payerName, payeeName, amount, title)
+
 		payment, err := s.CreatePayment(ctx, user.ID.Hex(), "68e7c6efa33ffd411aebee85", amount, title, description, payerName, payeeName)
 		if err != nil {
-			log.Printf("Failed to create payment for user %s: %v", user.ID.Hex(), err)
+			log.Printf("[ERROR] Failed to create payment: userID=%s, payeeID=%s, error=%v",
+				user.ID.Hex(), "68e7c6efa33ffd411aebee85", err)
 			continue // Continue with next user instead of failing the entire operation
 		}
+
+		log.Printf("[INFO] Successfully created payment: paymentID=%s, payer=%s, payee=%s, amount=%.2f",
+			payment.ID, payerName, payeeName, amount)
 		payments = append(payments, *payment)
 	}
 
 	if len(payments) == 0 {
-		log.Printf("No payments created for bulk payment")
+		log.Printf("[WARN] No payments created for bulk payment: authenticatedUserID=%s, excludeID=%s",
+			authenticatedUserID, excludeID)
 		return nil, fmt.Errorf("no payments created")
 	}
 
-	log.Printf("Created %d payments for bulk payment", len(payments))
+	log.Printf("[INFO] Completed bulk payment: created=%d payments, authenticatedUserID=%s",
+		len(payments), authenticatedUserID)
 	return payments, nil
 }
 
