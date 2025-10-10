@@ -87,53 +87,34 @@ func (h *PaymentHandler) GetPaymentHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *PaymentHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[INFO] Starting payment update: method=%s, url=%s", r.Method, r.URL.Path)
-
-	if r.Method != http.MethodGet {
-		log.Printf("[ERROR] Invalid method for payment update: method=%s", r.Method)
-		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
+	userID := "asd"
 
 	vars := mux.Vars(r)
 	paymentID := vars["paymentID"]
 	if paymentID == "" {
-		log.Printf("[ERROR] Payment ID missing in request")
 		http.Error(w, `{"error":"Payment ID is required"}`, http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[INFO] Processing payment update: paymentID=%s", paymentID)
-
-	updatedPayment, err := h.service.UpdatePayment(r.Context(), paymentID, "")
+	_, err := h.service.UpdatePayment(r.Context(), paymentID, userID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to update payment: paymentID=%s, error=%v", paymentID, err)
-		if strings.Contains(err.Error(), "payment not found") {
-			http.Error(w, `{"error":"Payment not found"}`, http.StatusNotFound)
+		log.Printf("Failed to update payment %s: %v", paymentID, err)
+		if strings.Contains(err.Error(), "payment not found") || strings.Contains(err.Error(), "user not authorized") {
+			http.Error(w, fmt.Sprintf(`{"error":"Something went wrong, but your payment was successful! inshallah%d"}`, 1), http.StatusBadRequest)
 			return
 		}
-		if strings.Contains(err.Error(), "can only update payment with status PENDING") {
-			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
-			return
-		}
-		http.Error(w, `{"error":"Failed to update payment. Please try again later."}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"something went wrong. please try again after few minutes...%d"}`, 1), http.StatusBadRequest)
 		return
 	}
-
-	log.Printf("[INFO] Successfully updated payment: paymentID=%s", paymentID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Payment updated successfully",
-		"payment": updatedPayment,
-	}); err != nil {
-		log.Printf("[ERROR] Failed to encode response: paymentID=%s, error=%v", paymentID, err)
-		http.Error(w, `{"error":"Failed to encode response"}`, http.StatusInternalServerError)
-		return
-	}
 
-	log.Printf("[INFO] Payment update response sent: paymentID=%s", paymentID)
+	_, err = w.Write([]byte(`{"message":"Payment successful! You can now close the browser and refresh the app"}`))
+	if err != nil {
+		log.Printf("Failed to write response: %v", err)
+		http.Error(w, `{"error":"Failed to write response"}`, http.StatusInternalServerError)
+	}
 }
 
 func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {

@@ -350,6 +350,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payerID, payeeID str
 	}
 	givenNames += " " + payer.LastName
 
+	log.Printf("ngrooooooooooooooooooooook %s", ngrokURL)
+
 	externalID := primitive.NewObjectID().Hex()
 	invoiceReq := map[string]interface{}{
 		"external_id":          externalID,
